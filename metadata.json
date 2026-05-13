@@ -1,0 +1,6 @@
+{
+  "name": "Gestão de Pedidos",
+  "description": "App para importação de catálogo, criação de pedidos, separação com fotos e envio, com armazenamento local (IndexedDB).",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": []
+}

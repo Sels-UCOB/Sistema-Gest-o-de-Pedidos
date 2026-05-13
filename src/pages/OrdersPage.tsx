@@ -1,0 +1,396 @@
+import React, { useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { db, Order, OrderItem } from "../lib/db";
+import { findBestMatch } from "../lib/string-utils";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Camera, Search, PlusCircle, CheckCircle2, ChevronRight, Package, Box } from "lucide-react";
+import { format } from "date-fns";
+
+export default function OrdersPage() {
+  const [activeTab, setActiveTab] = useState("list");
+  const products = useLiveQuery(() => db.products.toArray());
+  const orders = useLiveQuery(() => db.orders.orderBy("createdAt").reverse().toArray());
+
+  // Create Order State
+  const [customerName, setCustomerName] = useState("");
+  const [campaignCode, setCampaignCode] = useState("");
+  const [destinationCity, setDestinationCity] = useState("");
+  const [responsible, setResponsible] = useState("");
+  const [rawItems, setRawItems] = useState("");
+  const [parsedItems, setParsedItems] = useState<OrderItem[]>([]);
+  const [showPreview, setShowPreview] = useState(false);
+
+  // Separation State
+  const [separatingOrder, setSeparatingOrder] = useState<Order | null>(null);
+  const [photoItemQueue, setPhotoItemQueue] = useState<OrderItem | null>(null);
+  const [packedPhotoQueue, setPackedPhotoQueue] = useState<Order | null>(null);
+
+  const handleParseItems = () => {
+    if (!products) return;
+    const lines = rawItems.split("\n").filter(l => l.trim().length > 0);
+    const newParsed: OrderItem[] = [];
+
+    // Attempt to parse formats like "10 - vida de jesus" or "2 21 dias" or "10x vida de jesus"
+    for (const line of lines) {
+      let qty = 1;
+      let nameStr = line;
+      
+      const match = line.match(/^(\d+)(?:\s*[-xX]\s*|\s+)(.+)$/);
+      if (match) {
+        qty = parseInt(match[1], 10);
+        nameStr = match[2];
+      }
+
+      const bestProductMatch = findBestMatch(nameStr, products);
+      if (bestProductMatch) {
+        newParsed.push({
+          productId: bestProductMatch.id,
+          name: bestProductMatch.name,
+          quantity: qty,
+          isSeparated: false
+        });
+      } else {
+        // Just add with fake id if not matched
+        newParsed.push({
+          productId: `unknown-${Date.now()}`,
+          name: nameStr,
+          quantity: qty,
+          isSeparated: false
+        });
+      }
+    }
+    setParsedItems(newParsed);
+    setShowPreview(true);
+  };
+
+  const handleCreateOrder = async () => {
+    if (!customerName || parsedItems.length === 0) return;
+    try {
+      await db.orders.add({
+        id: crypto.randomUUID(),
+        customerName,
+        campaignCode,
+        destinationCity,
+        responsible,
+        status: "pending",
+        items: parsedItems,
+        createdAt: Date.now()
+      });
+      // reset
+      setCustomerName("");
+      setCampaignCode("");
+      setDestinationCity("");
+      setResponsible("");
+      setRawItems("");
+      setParsedItems([]);
+      setShowPreview(false);
+      setActiveTab("list");
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao criar pedido.");
+    }
+  };
+
+  const toggleSeparation = async (order: Order, itemIndex: number) => {
+    const item = order.items[itemIndex];
+    if (!item.isSeparated) {
+      // Prompt for photo
+      setPhotoItemQueue({ ...item });
+      setSeparatingOrder(order);
+    } else {
+      // Just uncheck
+      const newItems = [...order.items];
+      newItems[itemIndex].isSeparated = false;
+      newItems[itemIndex].photoUrl = undefined;
+      await db.orders.update(order.id, { items: newItems });
+      setSeparatingOrder({ ...order, items: newItems });
+    }
+  };
+
+  const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>, type: 'item' | 'packed') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const base64 = ev.target?.result as string;
+
+      if (type === 'item' && photoItemQueue && separatingOrder) {
+        const newItems = separatingOrder.items.map(it => 
+          it.productId === photoItemQueue.productId 
+            ? { ...it, isSeparated: true, photoUrl: base64 } 
+            : it
+        );
+        const updatedStatus = separatingOrder.status === 'pending' ? 'separating' : separatingOrder.status;
+        await db.orders.update(separatingOrder.id, { items: newItems, status: updatedStatus });
+        setSeparatingOrder({ ...separatingOrder, items: newItems, status: updatedStatus });
+        setPhotoItemQueue(null);
+
+        // Check if all separated, prompt for packed photo
+        if (newItems.every(i => i.isSeparated)) {
+          setPackedPhotoQueue({ ...separatingOrder, items: newItems, status: updatedStatus });
+        }
+      } else if (type === 'packed' && packedPhotoQueue) {
+        await db.orders.update(packedPhotoQueue.id, { 
+          packedPhotoUrl: base64, 
+          status: "closed" 
+        });
+        setSeparatingOrder(null);
+        setPackedPhotoQueue(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const statusMap = {
+    pending: { label: "Pendente", color: "bg-yellow-100 text-yellow-800" },
+    separating: { label: "Separando", color: "bg-blue-100 text-blue-800" },
+    closed: { label: "Fechado", color: "bg-green-100 text-green-800" },
+    shipped: { label: "Enviado", color: "bg-purple-100 text-purple-800" },
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-white">Gestão de Pedidos</h1>
+          <p className="text-slate-400">Crie, separe e acompanhe os pedidos.</p>
+        </div>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-2 md:w-[400px]">
+          <TabsTrigger value="list">Pedidos</TabsTrigger>
+          <TabsTrigger value="create">Novo Pedido</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="list" className="mt-6">
+          {separatingOrder && !photoItemQueue && !packedPhotoQueue ? (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Separando Pedido: {separatingOrder.customerName}</CardTitle>
+                  <CardDescription>
+                    Campanha: {separatingOrder.campaignCode} | Destino: {separatingOrder.destinationCity}
+                  </CardDescription>
+                </div>
+                <Button variant="outline" onClick={() => setSeparatingOrder(null)}>
+                  Voltar
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {separatingOrder.items.map((item, idx) => (
+                    <div key={idx} className="flex items-center space-x-4 p-4 border border-slate-800 rounded-lg bg-slate-900/50 shadow-sm">
+                      <Checkbox 
+                        id={`item-${idx}`} 
+                        checked={item.isSeparated}
+                        onCheckedChange={() => toggleSeparation(separatingOrder, idx)}
+                        disabled={separatingOrder.status === 'closed' || separatingOrder.status === 'shipped'}
+                      />
+                      <div className="flex-1">
+                        <label htmlFor={`item-${idx}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                          <span className="font-bold mr-2">{item.quantity}x</span> 
+                          {item.name}
+                        </label>
+                        <p className="text-xs text-slate-500 mt-1">Cód: {item.productId}</p>
+                      </div>
+                      {item.photoUrl && (
+                        <div className="h-10 w-10 border rounded overflow-hidden">
+                          <img src={item.photoUrl} alt="separado" className="object-cover w-full h-full" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {separatingOrder.packedPhotoUrl && (
+                    <div className="mt-6 p-4 bg-slate-800/40 rounded-lg border border-slate-800 flex flex-col items-center">
+                      <p className="font-medium text-white mb-2">Caixa Fechada:</p>
+                      <img src={separatingOrder.packedPhotoUrl} alt="Caixa embalada" className="max-w-xs rounded shadow-sm border" />
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead>Itens</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Ação</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {orders?.map(order => (
+                      <TableRow key={order.id}>
+                        <TableCell className="text-slate-400">{format(order.createdAt, 'dd/MM/yyyy HH:mm')}</TableCell>
+                        <TableCell className="font-bold text-white">{order.customerName}</TableCell>
+                        <TableCell className="text-slate-300">{order.items.length} itens</TableCell>
+                        <TableCell>
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${order.status === 'pending' ? 'bg-slate-800 text-slate-400' : order.status === 'separating' ? 'bg-amber-500/10 text-amber-500' : order.status === 'closed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-indigo-500/10 text-indigo-400'}`}>
+                            {statusMap[order.status].label}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" variant="ghost" onClick={() => setSeparatingOrder(order)}>
+                            {order.status === 'pending' || order.status === 'separating' ? "Separar" : "Visualizar"}
+                            <ChevronRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {(!orders || orders.length === 0) && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-slate-500">
+                          Nenhum pedido encontrado.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+        
+        <TabsContent value="create" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Criar Novo Pedido</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Nome do Cliente</label>
+                    <Input value={customerName} onChange={e => setCustomerName(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Código da Campanha</label>
+                    <Input value={campaignCode} onChange={e => setCampaignCode(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Cidade de Destino</label>
+                    <Input value={destinationCity} onChange={e => setDestinationCity(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Responsável</label>
+                    <Input value={responsible} onChange={e => setResponsible(e.target.value)} />
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium flex justify-between">
+                      Produtos e Quantidades
+                      <span className="text-xs text-slate-400 font-normal">Coloque 1 item por linha (ex: 10 - Vida de Jesus)</span>
+                    </label>
+                    <Textarea 
+                      rows={10} 
+                      className="font-mono text-sm leading-relaxed whitespace-pre-wrap"
+                      placeholder="Ex:&#10;10 - vida de jesus&#10;5 21 dias para mudar"
+                      value={rawItems} 
+                      onChange={e => setRawItems(e.target.value)} 
+                    />
+                  </div>
+                  <Button onClick={handleParseItems} variant="secondary" className="w-full" disabled={!rawItems.trim()}>
+                    <Search className="mr-2 h-4 w-4" /> Validar Itens
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Dialog Preview Items for Order Creation */}
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent className="max-w-md border-slate-800 bg-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-white">Validar Itens do Pedido</DialogTitle>
+            <DialogDescription className="text-slate-400">O sistema auto-corrigiu os nomes baseado no catálogo.</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[300px] overflow-y-auto space-y-2">
+            {parsedItems.map((item, idx) => (
+              <div key={idx} className="flex justify-between items-center bg-slate-800/40 p-3 rounded-lg border border-slate-800">
+                <div>
+                  <span className="font-bold text-white mr-2">{item.quantity}x</span>
+                  <span className="text-sm text-slate-300">{item.name}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPreview(false)}>Cancelar</Button>
+            <Button onClick={handleCreateOrder}>
+              <PlusCircle className="mr-2 h-4 w-4" /> Confirmar Pedido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Item Photo Capture Dialog */}
+      <Dialog open={!!photoItemQueue} onOpenChange={() => setPhotoItemQueue(null)}>
+        <DialogContent className="max-w-sm text-center">
+          <DialogHeader>
+            <DialogTitle>Foto do Item Separado</DialogTitle>
+            <DialogDescription>
+              Tire uma foto dos {photoItemQueue?.quantity}x "{photoItemQueue?.name}"
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-6 flex justify-center">
+            <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg cursor-pointer flex-col items-center gap-2 justify-center" })}>
+                <Camera className="h-8 w-8 shrink-0" />
+                <span>Tirar Foto / Anexar</span>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment"
+                  className="hidden" 
+                  onChange={(e) => handlePhotoCapture(e, 'item')}
+                />
+            </label>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Packed Photo Capture Dialog */}
+      <Dialog open={!!packedPhotoQueue} onOpenChange={() => setPackedPhotoQueue(null)}>
+        <DialogContent className="max-w-sm text-center bg-green-50 border-green-200">
+          <DialogHeader>
+            <DialogTitle className="text-green-800">Pedido Separado!</DialogTitle>
+            <DialogDescription className="text-green-700">
+              Todos os itens foram separados. Agora tire uma foto das caixas fechadas para encerrar o pedido.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-6 flex justify-center">
+            <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg bg-green-600 hover:bg-green-700 text-white cursor-pointer flex-col items-center gap-2 justify-center" })}>
+                <Package className="h-8 w-8 shrink-0" />
+                <span>Foto do Pedido Embalado</span>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment"
+                  className="hidden" 
+                  onChange={(e) => handlePhotoCapture(e, 'packed')}
+                />
+            </label>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+    </div>
+  );
+}
