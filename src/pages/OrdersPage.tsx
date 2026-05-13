@@ -13,6 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Camera, Search, PlusCircle, CheckCircle2, ChevronRight, Package, Box } from "lucide-react";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { flushSync } from "react-dom";
 
 export default function OrdersPage() {
   const [activeTab, setActiveTab] = useState("create ");
@@ -25,6 +26,24 @@ export default function OrdersPage() {
   const [destinationCity, setDestinationCity] = useState("");
   const [responsible, setResponsible] = useState("");
   const [rawItems, setRawItems] = useState("");
+  // Persiste o formulário no localStorage
+  React.useEffect(() => {
+  const saved = localStorage.getItem('orderForm');
+  if (saved) {
+    const f = JSON.parse(saved);
+    setCustomerName(f.customerName || '');
+    setCampaignCode(f.campaignCode || '');
+    setDestinationCity(f.destinationCity || '');
+    setResponsible(f.responsible || '');
+    setRawItems(f.rawItems || '');
+  }
+}, []);
+
+  React.useEffect(() => {
+  localStorage.setItem('orderForm', JSON.stringify({
+    customerName, campaignCode, destinationCity, responsible, rawItems
+  }));
+}, [customerName, campaignCode, destinationCity, responsible, rawItems]);
   const [parsedItems, setParsedItems] = useState<OrderItem[]>([]);
   const [showPreview, setShowPreview] = useState(false);
 
@@ -56,47 +75,52 @@ export default function OrdersPage() {
   const [suggestions, setSuggestions] = useState<{id: string, name: string}[]>([]);
   const [customResponsible, setCustomResponsible] = useState("");
   const [customResponsibleError, setCustomResponsibleError] = useState("");
+  const [ambiguousItems, setAmbiguousItems] = useState<{idx: number, query: string, options: {id: string, name: string}[]}[]>([]);
+  const [manualSearch, setManualSearch] = useState<{idx: number, query: string} | null>(null);
+  const [manualSearchResults, setManualSearchResults] = useState<{id: string, name: string}[]>([]);
 
+const handleParseItems = () => {
+  if (!products) return;
+  const lines = rawItems.split("\n").filter(l => l.trim().length > 0);
+  const newParsed: OrderItem[] = [];
+  const newAmbiguous: {idx: number, query: string, options: {id: string, name: string}[]}[] = [];
 
-  const handleParseItems = () => {
-    if (!products) return;
-    const lines = rawItems.split("\n").filter(l => l.trim().length > 0);
-    const newParsed: OrderItem[] = [];
+  for (const line of lines) {
+    let qty = 1;
+    let nameStr = line;
 
-    // Attempt to parse formats like "10 - vida de jesus" or "2 21 dias" or "10x vida de jesus"
-    for (const line of lines) {
-      let qty = 1;
-      let nameStr = line;
-      
-      const match = line.match(/^(\d+)(?:\s*[-xX]\s*|\s+)(.+)$/);
-      if (match) {
-        qty = parseInt(match[1], 10);
-        nameStr = match[2];
-      }
-
-      const bestProductMatch = findBestMatch(nameStr, products);
-      if (bestProductMatch) {
-        newParsed.push({
-          productId: bestProductMatch.id,
-          name: bestProductMatch.name,
-          quantity: qty,
-          isSeparated: false
-        });
-      } else {
-        // Just add with fake id if not matched
-        newParsed.push({
-          productId: `unknown-${Date.now()}`,
-          name: nameStr,
-          quantity: qty,
-          isSeparated: false
-        });
-      }
+    const match = line.match(/^(\d+)(?:\s*[-xX]\s*|\s+)(.+)$/);
+    if (match) {
+      qty = parseInt(match[1], 10);
+      nameStr = match[2];
     }
-    setParsedItems(newParsed);
-    setShowPreview(true);
-  };
 
-  const handleCreateOrder = async () => {
+    const lowerName = nameStr.toLowerCase().trim();
+    const multipleMatches = products.filter(p =>
+      p.name.toLowerCase().includes(lowerName.replace(/s$/, '')) ||
+      lowerName.split(" ").filter(w => w.length >= 3).some(w => p.name.toLowerCase().includes(w))
+    ).slice(0, 5);
+
+    const exactMatch = multipleMatches.find(p => p.name.toLowerCase() === lowerName);
+    let bestProductMatch = exactMatch || (multipleMatches.length === 1 ? multipleMatches[0] : findBestMatch(nameStr, products));
+
+    if (!exactMatch && multipleMatches.length > 1 && !bestProductMatch) {
+      newAmbiguous.push({ idx: newParsed.length, query: nameStr, options: multipleMatches });
+      bestProductMatch = multipleMatches[0];
+    }
+
+    if (bestProductMatch) {
+      newParsed.push({ productId: bestProductMatch.id, name: bestProductMatch.name, quantity: qty, isSeparated: false });
+    } else {
+      newParsed.push({ productId: `unknown-${Date.now()}`, name: nameStr, quantity: qty, isSeparated: false });
+    }
+  }
+  setParsedItems(newParsed);
+  setAmbiguousItems(newAmbiguous);
+  setShowPreview(true);
+};
+
+const handleCreateOrder = async () => {
   const nomeValido = (val: string) => val.trim().length >= 3 && /^[a-zA-ZÀ-ÿ\s]+$/.test(val.trim());
   const newErrors: {customerName?: string, destinationCity?: string} = {};
 
@@ -116,11 +140,16 @@ if (responsible === "Outro" && customResponsible.trim().length < 3) {
   return;
 }
 
-  if (parsedItems.length === 0) {
-    alert("Adicione pelo menos um item ao pedido.");
-    return;
-  }
-  try {
+ if (parsedItems.length === 0) {
+  alert("Adicione pelo menos um item ao pedido.");
+  return;
+}
+if (parsedItems.some(item => item.productId.startsWith('unknown-'))) {
+  alert("Existem produtos não identificados. Revise os itens antes de confirmar.");
+  setShowPreview(true);
+  return;
+}
+try {
       await db.orders.add({
         id: crypto.randomUUID(),
         customerName,
@@ -144,6 +173,8 @@ if (responsible === "Outro" && customResponsible.trim().length < 3) {
     } catch (err) {
       console.error(err);
       alert("Erro ao criar pedido.");
+      setActiveTab("list");
+localStorage.removeItem('orderForm'); // ← aqui, linha 174
     }
   };
 
@@ -182,14 +213,16 @@ if (responsible === "Outro" && customResponsible.trim().length < 3) {
         setSeparatingOrder({ ...separatingOrder, items: newItems, status: updatedStatus });
         setPhotoItemQueue(null);
 
-        // Check if all separated, prompt for packed photo
         if (newItems.every(i => i.isSeparated)) {
-          setPackedPhotoQueue({ ...separatingOrder, items: newItems, status: updatedStatus });
-        }
+  const packedData = { ...separatingOrder, items: newItems, status: updatedStatus };
+  setTimeout(() => {
+    setPackedPhotoQueue(packedData);
+  }, 300);
+}
       } else if (type === 'packed' && packedPhotoQueue) {
-        await db.orders.update(packedPhotoQueue.id, { 
-          packedPhotoUrl: base64, 
-          status: "closed" 
+        await db.orders.update(packedPhotoQueue.id, {
+          packedPhotoUrl: base64,
+          status: "closed"
         });
         setSeparatingOrder(null);
         setPackedPhotoQueue(null);
@@ -221,7 +254,7 @@ if (responsible === "Outro" && customResponsible.trim().length < 3) {
         </TabsList>
         
         <TabsContent value="list" className="mt-6">
-          {separatingOrder && !photoItemQueue && !packedPhotoQueue ? (
+          {separatingOrder && !packedPhotoQueue ? (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
@@ -424,6 +457,7 @@ onKeyDown={e => {
                       className="font-mono text-sm leading-relaxed whitespace-pre-wrap"
                       placeholder="Ex:&#10;10 - vida de jesus&#10;5 21 dias para mudar"
                       value={rawItems} 
+                      onBlur={() => setTimeout(() => setSuggestions([]), 150)}
                      onChange={e => {
   setRawItems(e.target.value);
   const lines = e.target.value.split("\n");
@@ -431,16 +465,25 @@ onKeyDown={e => {
   const match = lastLine.match(/^(\d+)(?:\s*[-xX]\s*|\s+)(.+)$/);
   const searchStr = match ? match[2] : lastLine;
   if (searchStr.length >= 2 && products) {
-    const filtered = products.filter(p => 
-      p.name.toLowerCase().includes(searchStr.toLowerCase())
-    ).slice(0, 5);
+   const filtered = products.filter(p => 
+  p.name.toLowerCase().includes(searchStr.toLowerCase()) || 
+  searchStr.toLowerCase().split(" ").some(word => word.length >= 3 && p.name.toLowerCase().includes(word))
+).sort((a, b) => {
+  const aLower = a.name.toLowerCase();
+  const bLower = b.name.toLowerCase();
+  const s = searchStr.toLowerCase();
+  // Prioriza quem começa com o termo
+  const aStarts = aLower.startsWith(s) ? 0 : aLower.includes(s) ? 1 : 2;
+  const bStarts = bLower.startsWith(s) ? 0 : bLower.includes(s) ? 1 : 2;
+  return aStarts - bStarts;
+}).slice(0, searchStr.length < 3 ? 10 : searchStr.length < 5 ? 8 : 5);
     setSuggestions(filtered);
   } else {
     setSuggestions([]);
   }
 }}
                     />  {suggestions.length > 0 && (
-  <div className="absolute z-50 w-full bg-slate-800 border border-slate-700 rounded-md shadow-lg mt-1">
+<  div className="absolute z-50 w-full bg-slate-800 border border-slate-700 rounded-md shadow-lg mt-1 max-h-60 overflow-y-auto">
     {suggestions.map(s => (
       <div
         key={s.id}
@@ -462,7 +505,17 @@ onKeyDown={e => {
   </div>
 )}   
                   </div>
-                  <Button onClick={handleParseItems} variant="secondary" className="w-full" disabled={!rawItems.trim()}>
+                  <Button onClick={() => {
+  setSuggestions([]);
+  const lines = rawItems.split("\n");
+  const lastLine = lines[lines.length - 1].trim();
+  if (!lastLine.match(/^\d+/)) {
+    lines.pop();
+    setRawItems(lines.join("\n"));
+  }
+  handleParseItems();
+}}
+                  >
                     <Search className="mr-2 h-4 w-4" /> Validar Itens
                   </Button>
                 </div>
@@ -480,14 +533,92 @@ onKeyDown={e => {
             <DialogDescription className="text-slate-400">Revise os itens antes de confirmar o pedido.</DialogDescription>
           </DialogHeader>
           <div className="max-h-[300px] overflow-y-auto space-y-2">
-            {parsedItems.map((item, idx) => (
-              <div key={idx} className="flex justify-between items-center bg-slate-800/40 p-3 rounded-lg border border-slate-800">
-                <div>
-                  <span className="font-bold text-white mr-2">{item.quantity}x</span>
-                  <span className="text-sm text-slate-300">{item.name}</span>
-                </div>
+            {parsedItems.filter(item => !item.productId.startsWith('unknown-')).length > 0 && (
+  <div className="space-y-2">
+    <p className="text-green-400 text-sm font-medium"> Produtos encontrados:</p>
+    {parsedItems.map((item, idx) => !item.productId.startsWith('unknown-') && (
+      <div key={idx} className="bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
+        <span className="text-white font-bold text-sm">{item.quantity}x</span>
+        <span className="text-slate-200 text-sm">{item.name}</span>
+        <span className="text-slate-500 font-mono text-xs ml-auto">{item.productId}</span>
+      </div>
+    ))}
+  </div>
+)}
+            {ambiguousItems.length > 0 && (
+              <div className="mt-4 space-y-3">
+                <p className="text-yellow-400 text-sm font-medium">⚠️ Produtos com múltiplas opções — escolha o correto:</p>
+                {ambiguousItems.map((amb) => (
+                  <div key={amb.idx} className="bg-slate-800 p-3 rounded-lg border border-yellow-500/30">
+                    <p className="text-slate-400 text-xs mb-2">Digitado: <span className="text-white">{amb.query}</span></p>
+                    <div className="space-y-1">
+                      {amb.options.map(opt => (
+                        <button
+                          key={opt.id}
+                          className="w-full text-left px-3 py-2 rounded text-sm hover:bg-indigo-600 text-slate-200 border border-slate-700"
+                          onClick={() => {
+                            const newItems = [...parsedItems];
+                            newItems[amb.idx] = { ...newItems[amb.idx], productId: opt.id, name: opt.name };
+                            setParsedItems(newItems);
+                            setAmbiguousItems(prev => prev.filter(a => a.idx !== amb.idx));
+                          }}
+                        >
+                          <span className="text-slate-400 font-mono text-xs mr-2">{opt.id}</span>
+                          {opt.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {parsedItems.filter(item => item.productId.startsWith('unknown-')).length > 0 && (
+  <div className="mt-4 space-y-3">
+    <p className="text-red-400 text-sm font-medium">❌ Produtos não encontrados — busque manualmente:</p>
+    {parsedItems.map((item, idx) => item.productId.startsWith('unknown-') && (
+      <div key={idx} className="bg-slate-800 p-3 rounded-lg border border-red-500/30">
+        <p className="text-slate-400 text-xs mb-2">Digitado: <span className="text-white">{item.name}</span></p>
+        <Input
+          placeholder="Buscar produto no catálogo..."
+          className="h-8 text-xs mb-1"
+          onChange={e => {
+            const q = e.target.value;
+            if (q.length >= 2 && products) {
+              setManualSearchResults(
+  products.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => {
+      const aStarts = a.name.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1;
+      const bStarts = b.name.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1;
+      return aStarts - bStarts;
+    })
+    .slice(0, 8)
+);
+              setManualSearch({ idx, query: q });
+            } else {
+              setManualSearchResults([]);
+            }
+          }}
+        />
+        {manualSearch?.idx === idx && manualSearchResults.length > 0 && (
+          <div className="bg-slate-700 rounded border border-slate-600 max-h-32 overflow-y-auto">
+            {manualSearchResults.map(r => (
+              <div key={r.id} className="px-2 py-1 text-xs text-slate-200 hover:bg-indigo-600 cursor-pointer"
+                onClick={() => {
+                  const newItems = [...parsedItems];
+                  newItems[idx] = { ...item, productId: r.id, name: r.name };
+                  setParsedItems(newItems);
+                  setManualSearch(null);
+                  setManualSearchResults([]);
+                }}>
+                <span className="text-slate-400 font-mono mr-1">{r.id}</span> {r.name}
               </div>
             ))}
+          </div>
+        )}
+      </div>
+    ))}
+  </div>
+)}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPreview(false)}>Cancelar</Button>
@@ -497,56 +628,36 @@ onKeyDown={e => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Item Photo Capture Dialog */}
-      <Dialog open={!!photoItemQueue} onOpenChange={() => setPhotoItemQueue(null)}>
-        <DialogContent className="max-w-sm text-center">
-          <DialogHeader>
-            <DialogTitle>Foto do Item Separado</DialogTitle>
-            <DialogDescription>
-              Tire uma foto dos {photoItemQueue?.quantity}x "{photoItemQueue?.name}"
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-6 flex justify-center">
-            <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg cursor-pointer flex-col items-center gap-2 justify-center" })}>
-                <Camera className="h-8 w-8 shrink-0" />
-                <span>Tirar Foto / Anexar</span>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  capture="environment"
-                  className="hidden" 
-                  onChange={(e) => handlePhotoCapture(e, 'item')}
-                />
-            </label>
+{/* Photo Capture Modal — CSS puro, sem portal */}
+      {(photoItemQueue || packedPhotoQueue) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className={`relative w-full max-w-sm mx-4 rounded-xl p-4 ${packedPhotoQueue ? 'bg-green-50 border border-green-200' : 'bg-white'}`}>
+            {packedPhotoQueue ? (
+              <>
+                <h2 className="text-green-800 font-semibold text-base mb-1">Pedido Separado!</h2>
+                <p className="text-green-700 text-sm mb-4">Todos os itens foram separados. Agora tire uma foto das caixas fechadas para encerrar o pedido.</p>
+                <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg bg-green-600 hover:bg-green-700 text-white cursor-pointer flex-col items-center gap-2 justify-center" })}>
+                  <Package className="h-8 w-8 shrink-0" />
+                  <span>Foto do Pedido Embalado</span>
+                  <input type="file" accept="image/*" capture="environment" className="hidden"
+                    onChange={(e) => handlePhotoCapture(e, 'packed')} />
+                </label>
+              </>
+            ) : (
+              <>
+                <h2 className="font-semibold text-base mb-1 text-slate-800">Foto do Item Separado</h2>
+               <p className="text-sm text-slate-600 mb-4">Tire uma foto de {photoItemQueue?.quantity} unidades de {photoItemQueue?.name}</p>
+                <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg cursor-pointer flex-col items-center gap-2 justify-center" })}>
+                  <Camera className="h-8 w-8 shrink-0" />
+                  <span>Tirar Foto / Anexar</span>
+                  <input type="file" accept="image/*" capture="environment" className="hidden"
+                    onChange={(e) => handlePhotoCapture(e, 'item')} />
+                </label>
+              </>
+            )}
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Packed Photo Capture Dialog */}
-      <Dialog open={!!packedPhotoQueue} onOpenChange={() => setPackedPhotoQueue(null)}>
-        <DialogContent className="max-w-sm text-center bg-green-50 border-green-200">
-          <DialogHeader>
-            <DialogTitle className="text-green-800">Pedido Separado!</DialogTitle>
-            <DialogDescription className="text-green-700">
-              Todos os itens foram separados. Agora tire uma foto das caixas fechadas para encerrar o pedido.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-6 flex justify-center">
-            <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg bg-green-600 hover:bg-green-700 text-white cursor-pointer flex-col items-center gap-2 justify-center" })}>
-                <Package className="h-8 w-8 shrink-0" />
-                <span>Foto do Pedido Embalado</span>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  capture="environment"
-                  className="hidden" 
-                  onChange={(e) => handlePhotoCapture(e, 'packed')}
-                />
-            </label>
-          </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
 
     </div>
   );

@@ -40,7 +40,12 @@ export function findBestMatch(inputStr: string, candidates: {id: string, name: s
   // Exact or Substring match
   const exactOrSub = candidates.find(c => c.name.toLowerCase() === lowerInput || c.name.toLowerCase().includes(lowerInput) || lowerInput.includes(c.name.toLowerCase()));
   if (exactOrSub) return exactOrSub;
-
+// Busca por palavras individuais — "vidas" encontra "Vida de Jesus"
+const words = lowerInput.split(" ").filter(w => w.length >= 3);
+const wordMatch = candidates.find(c => 
+  words.some(w => c.name.toLowerCase().includes(w))
+);
+if (wordMatch) return wordMatch;
   for (const candidate of candidates) {
     const distance = getLevenshteinDistance(inputStr, candidate.name);
     if (distance < lowestDistance) {
