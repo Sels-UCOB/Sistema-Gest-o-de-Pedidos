@@ -40,28 +40,23 @@ export default function ProductsPage() {
   }
 
   const processCsv = async (csvData: string) => {
-    // Basic text parsing since the format is essentially DSV/CSV
-    // Expected line format: ;330959 Bateria Recarregavel de Ion de Litio, 3 Celulas, 42WHr;;;;0,000;;;0,00;;...
-    const lines = csvData.split("\n");
+    const lines = csvData.split(/\r?\n/);
     const newProducts: Product[] = [];
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      // The product info usually appears in a specific column separated by semicolons
-      // We can look for patterns where a sequence of digits is followed by a space and then text
-      const parts = line.split(";");
-      for (const part of parts) {
-        const trimmed = part.trim();
-        const match = trimmed.match(/^(\d+)\s+(.+)$/);
-        if (match) {
-          const code = match[1];
-          const name = match[2].trim();
-          newProducts.push({ id: code, name });
-          break; // Stop looking in this line once we found the product
-        }
-      }
-    }
-
+    console.log(newProducts.find(p => p.id === '9181'));
+    console.log(newProducts.map(p => p.id + ' ' + p.name));
+    console.log('primeiras linhas:', csvData.substring(0, 200));
+    console.log(newProducts.find(p => p.id === '9181'));
+   for (const line of lines) {
+  if (!line.trim()) continue;
+  const parts = line.split(";");
+  const firstCol = parts[0].trim();
+  const match = firstCol.match(/^(\d+)\s+(.+)$/);
+  if (match) {
+    const code = match[1];
+    const name = match[2].trim();
+    newProducts.push({ id: code, name });
+  }
+}
     if (newProducts.length > 0) {
       // Upsert into DB
       await db.products.bulkPut(newProducts);
@@ -138,7 +133,7 @@ export default function ProductsPage() {
         {/* ADD MANUAL */}
         <Card className="lg:col-span-1 border-slate-800 bg-slate-900/50">
           <CardHeader>
-            <CardTitle className="text-lg">Adicionar Manualmente</CardTitle>
+            <CardTitle className="text-lg">Inserir Produto Manualmente</CardTitle>
             <CardDescription>Insira um formato divergente ou não presente</CardDescription>
           </CardHeader>
           <CardContent>
