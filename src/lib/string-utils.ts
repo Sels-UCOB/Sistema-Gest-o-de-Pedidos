@@ -48,8 +48,8 @@ export function findBestMatch(inputStr: string, candidates: {id: string, name: s
       bestMatch = candidate;
     }
   }
+const threshold = Math.floor(lowerInput.length * 0.4);
+if (lowestDistance > threshold) return null;
 
-  // If the string is totally different but it's the best Levenshtein, we might still accept it.
-  // We can just return the best match.
-  return bestMatch;
+return bestMatch;
 }

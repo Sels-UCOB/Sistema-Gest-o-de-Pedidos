@@ -14,7 +14,7 @@ export default function ProductsPage() {
   const [newCode, setNewCode] = useState("");
   const [newName, setNewName] = useState("");
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -23,21 +23,21 @@ export default function ProductsPage() {
       const xlsx = await import('xlsx');
       reader.onload = async (e) => {
         const data = e.target?.result;
-        const workbook = xlsx.read(data, { type: 'binary' });
+        const workbook = xlsx.read(data, { type: 'array' });
         const firstSheet = workbook.SheetNames[0];
         const csv = xlsx.utils.sheet_to_csv(workbook.Sheets[firstSheet]);
         await processCsv(csv);
       };
-      reader.readAsBinaryString(file);
+      reader.readAsArrayBuffer(file);
     } else {
       const reader = new FileReader();
       reader.onload = async ({ target }) => {
         const csv = target?.result as string;
         await processCsv(csv);
       };
-      reader.readAsText(file);
+      reader.readAsText(file, 'Windows-1252');
     }
-  };
+  }
 
   const processCsv = async (csvData: string) => {
     // Basic text parsing since the format is essentially DSV/CSV
@@ -111,7 +111,7 @@ export default function ProductsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">Tabela de Produtos</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-white">Lista de Produtos</h1>
           <p className="text-slate-400">Importe e gerencie seus produtos base.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">

@@ -12,9 +12,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Checkbox } from "@/components/ui/checkbox";
 import { Camera, Search, PlusCircle, CheckCircle2, ChevronRight, Package, Box } from "lucide-react";
 import { format } from "date-fns";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function OrdersPage() {
-  const [activeTab, setActiveTab] = useState("list");
+  const [activeTab, setActiveTab] = useState("create ");
   const products = useLiveQuery(() => db.products.toArray());
   const orders = useLiveQuery(() => db.orders.orderBy("createdAt").reverse().toArray());
 
@@ -27,10 +28,35 @@ export default function OrdersPage() {
   const [parsedItems, setParsedItems] = useState<OrderItem[]>([]);
   const [showPreview, setShowPreview] = useState(false);
 
-  // Separation State
+  
   const [separatingOrder, setSeparatingOrder] = useState<Order | null>(null);
   const [photoItemQueue, setPhotoItemQueue] = useState<OrderItem | null>(null);
   const [packedPhotoQueue, setPackedPhotoQueue] = useState<Order | null>(null);
+
+  const RESPONSAVEIS = [
+  "Maycon Douglas",
+  "Victor Fialho",
+  "Juan Vazquez",
+  "Leticia Lobato",
+  "Outro",
+];
+  const CAMPANHAS = [
+  "ABC - 1976",
+  "ALM - 5847",
+  "ALM SA - 5387",
+  "APLAC - 2935",
+  "APLAC SA - 2976",
+  "AOM - 7485",
+  "AOM SA - 7101",
+  "ASM - 4261",
+  "ASM SA - 4289",
+  "IABC - 1677",
+];
+  const [errors, setErrors] = useState<{customerName?: string, destinationCity?: string}>({});
+  const [suggestions, setSuggestions] = useState<{id: string, name: string}[]>([]);
+  const [customResponsible, setCustomResponsible] = useState("");
+  const [customResponsibleError, setCustomResponsibleError] = useState("");
+
 
   const handleParseItems = () => {
     if (!products) return;
@@ -71,18 +97,41 @@ export default function OrdersPage() {
   };
 
   const handleCreateOrder = async () => {
-    if (!customerName || parsedItems.length === 0) return;
-    try {
+  const nomeValido = (val: string) => val.trim().length >= 3 && /^[a-zA-ZÀ-ÿ\s]+$/.test(val.trim());
+  const newErrors: {customerName?: string, destinationCity?: string} = {};
+
+if (!nomeValido(customerName)) {
+  newErrors.customerName = "Mínimo 3 letras, sem números.";
+}
+if (!nomeValido(destinationCity)) {
+  newErrors.destinationCity = "Mínimo 3 letras, sem números.";
+}
+if (Object.keys(newErrors).length > 0) {
+  setErrors(newErrors);
+  return;
+}
+setErrors({});
+if (responsible === "Outro" && customResponsible.trim().length < 3) {
+  alert("Digite o nome do responsável.");
+  return;
+}
+
+  if (parsedItems.length === 0) {
+    alert("Adicione pelo menos um item ao pedido.");
+    return;
+  }
+  try {
       await db.orders.add({
         id: crypto.randomUUID(),
         customerName,
         campaignCode,
         destinationCity,
-        responsible,
+        responsible: responsible === "Outro" ? customResponsible.trim() : responsible,
         status: "pending",
         items: parsedItems,
         createdAt: Date.now()
       });
+      setCustomResponsible("");
       // reset
       setCustomerName("");
       setCampaignCode("");
@@ -167,8 +216,8 @@ export default function OrdersPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2 md:w-[400px]">
-          <TabsTrigger value="list">Pedidos</TabsTrigger>
-          <TabsTrigger value="create">Novo Pedido</TabsTrigger>
+          <TabsTrigger value="create" >Criar Pedido</TabsTrigger>
+          <TabsTrigger value="list" >Gerenciar Pedidos</TabsTrigger>
         </TabsList>
         
         <TabsContent value="list" className="mt-6">
@@ -275,24 +324,97 @@ export default function OrdersPage() {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Nome do Cliente</label>
-                    <Input value={customerName} onChange={e => setCustomerName(e.target.value)} />
+                    <Input 
+                    value={customerName} 
+                      onChange={e => { setCustomerName(e.target.value); setErrors(prev => ({...prev, customerName: undefined})); }}
+                      onBlur={e => { if (e.target.value.trim().length < 3 || /\d/.test(e.target.value)) setErrors(prev => ({...prev, customerName: "Mínimo 3 letras, sem números."})); }}
+                    onKeyDown={e => {
+                    if (e.key === "Enter") {
+                    if (e.currentTarget.value.trim().length < 3 || /\d/.test(e.currentTarget.value)) {
+                      setErrors(prev => ({...prev, customerName: "Mínimo 3 letras, sem números."}));
+                    } else {
+                      e.preventDefault();
+                      document.getElementById("input-campanha")?.focus();
+                    }
+                  }
+}}
+                    />
+                    {errors.customerName && <p className="text-red-500 text-xs mt-1">{errors.customerName}</p>}
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Código da Campanha</label>
-                    <Input value={campaignCode} onChange={e => setCampaignCode(e.target.value)} />
+                   <Select value={campaignCode} onValueChange={(value) => setCampaignCode(value || "")}>
+  <SelectTrigger id="input-campanha" className="w-full">
+    <SelectValue placeholder="Selecione..." />
+  </SelectTrigger>
+  <SelectContent>
+    {CAMPANHAS.map(c => (
+      <SelectItem key={c} value={c}>{c}</SelectItem>
+    ))}
+  </SelectContent>
+</Select>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Cidade de Destino</label>
-                    <Input value={destinationCity} onChange={e => setDestinationCity(e.target.value)} />
+                   <Input 
+  value={destinationCity} 
+  onChange={e => { setDestinationCity(e.target.value); setErrors(prev => ({...prev, destinationCity: undefined})); }}
+  onBlur={e => { if (e.target.value.trim().length < 3 || /\d/.test(e.target.value)) setErrors(prev => ({...prev, destinationCity: "Mínimo 3 letras, sem números."})); }}
+onKeyDown={e => {
+  if (e.key === "Enter") {
+    if (e.currentTarget.value.trim().length < 3 || /\d/.test(e.currentTarget.value)) {
+      setErrors(prev => ({...prev, destinationCity: "Mínimo 3 letras, sem números."}));
+    } else {
+      e.preventDefault();
+      document.getElementById("input-responsavel")?.focus();
+    }
+  }
+}}
+/>
+{errors.destinationCity && <p className="text-red-500 text-xs mt-1">{errors.destinationCity}</p>}
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Responsável</label>
-                    <Input value={responsible} onChange={e => setResponsible(e.target.value)} />
+                    <Select value={responsible} onValueChange={(value) => value !== null && setResponsible(value)}>
+  <SelectTrigger id="input-responsavel" className="w-full">
+    <SelectValue placeholder="Selecione..." />
+  </SelectTrigger>
+  <SelectContent>
+    {RESPONSAVEIS.map(r => (
+      <SelectItem key={r} value={r}>{r}</SelectItem>
+    ))}
+  </SelectContent>
+</Select>
+{responsible === "Outro" && (
+  <div>
+    <Input
+      placeholder="Digite o nome do responsável"
+      value={customResponsible}
+      onChange={e => { setCustomResponsible(e.target.value); setCustomResponsibleError(""); }}
+      onBlur={e => {
+        if (e.target.value.trim().length < 3 || /\d/.test(e.target.value))
+          setCustomResponsibleError("Mínimo 3 letras, sem números.");
+      }}
+      onKeyDown={e => {
+        if (e.key === "Enter") {
+          if (e.currentTarget.value.trim().length < 3 || /\d/.test(e.currentTarget.value)) {
+            setCustomResponsibleError("Mínimo 3 letras, sem números.");
+          } else {
+            setCustomResponsibleError("");
+            e.preventDefault();
+          }
+        }
+      }}
+      className="mt-2"
+    />
+    {customResponsibleError && <p className="text-red-500 text-xs mt-1">{customResponsibleError}</p>}
+  </div>
+)}
                   </div>
                 </div>
                 
-                <div className="space-y-4">
-                  <div className="space-y-2">
+                <div className="space-y-4 relative">
+                  <div className="space-y-2 relative">
                     <label className="text-sm font-medium flex justify-between">
                       Produtos e Quantidades
                       <span className="text-xs text-slate-400 font-normal">Coloque 1 item por linha (ex: 10 - Vida de Jesus)</span>
@@ -302,8 +424,43 @@ export default function OrdersPage() {
                       className="font-mono text-sm leading-relaxed whitespace-pre-wrap"
                       placeholder="Ex:&#10;10 - vida de jesus&#10;5 21 dias para mudar"
                       value={rawItems} 
-                      onChange={e => setRawItems(e.target.value)} 
-                    />
+                     onChange={e => {
+  setRawItems(e.target.value);
+  const lines = e.target.value.split("\n");
+  const lastLine = lines[lines.length - 1].trim();
+  const match = lastLine.match(/^(\d+)(?:\s*[-xX]\s*|\s+)(.+)$/);
+  const searchStr = match ? match[2] : lastLine;
+  if (searchStr.length >= 2 && products) {
+    const filtered = products.filter(p => 
+      p.name.toLowerCase().includes(searchStr.toLowerCase())
+    ).slice(0, 5);
+    setSuggestions(filtered);
+  } else {
+    setSuggestions([]);
+  }
+}}
+                    />  {suggestions.length > 0 && (
+  <div className="absolute z-50 w-full bg-slate-800 border border-slate-700 rounded-md shadow-lg mt-1">
+    {suggestions.map(s => (
+      <div
+        key={s.id}
+        className="px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 cursor-pointer"
+        onClick={() => {
+          const lines = rawItems.split("\n");
+          const lastLine = lines[lines.length - 1];
+          const match = lastLine.match(/^(\d+)(?:\s*[-xX]\s*|\s+)/);
+          const prefix = match ? match[0] : "";
+          lines[lines.length - 1] = prefix + s.name;
+          setRawItems(lines.join("\n"));
+          setSuggestions([]);
+        }}
+      >
+        <span className="text-slate-400 font-mono text-xs mr-2">{s.id}</span>
+        {s.name}
+      </div>
+    ))}
+  </div>
+)}   
                   </div>
                   <Button onClick={handleParseItems} variant="secondary" className="w-full" disabled={!rawItems.trim()}>
                     <Search className="mr-2 h-4 w-4" /> Validar Itens
@@ -320,7 +477,7 @@ export default function OrdersPage() {
         <DialogContent className="max-w-md border-slate-800 bg-slate-900">
           <DialogHeader>
             <DialogTitle className="text-white">Validar Itens do Pedido</DialogTitle>
-            <DialogDescription className="text-slate-400">O sistema auto-corrigiu os nomes baseado no catálogo.</DialogDescription>
+            <DialogDescription className="text-slate-400">Revise os itens antes de confirmar o pedido.</DialogDescription>
           </DialogHeader>
           <div className="max-h-[300px] overflow-y-auto space-y-2">
             {parsedItems.map((item, idx) => (
