@@ -84,10 +84,8 @@ export default function Layout() {
             >
               <Menu className="h-6 w-6" />
             </button>
-            <span className="hidden md:inline text-slate-500">Módulo:</span>
             <span className="font-semibold text-white uppercase tracking-wider">
-              {navItems.find((i) => location.pathname.startsWith(i.to))?.label || "Geral"}
-            </span>
+  {navItems.find((i) => location.pathname.startsWith(i.to))?.label?.replace('su:', '') || 'Dashboard'}          </span>
           </div>
           <div className="flex items-center gap-4">
             <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 hidden sm:block"></div>

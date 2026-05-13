@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Upload, Plus, Trash2, Edit2, Check, X } from "lucide-react";
-import { parse } from "papaparse";
 
 export default function ProductsPage() {
   const products = useLiveQuery(() => db.products.toArray());
@@ -112,7 +111,7 @@ export default function ProductsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">Catálogo de Produtos</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-white">Tabela de Produtos</h1>
           <p className="text-slate-400">Importe e gerencie seus produtos base.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
