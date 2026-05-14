@@ -94,7 +94,7 @@ export default function Layout() {
 
         {/* Page content */}
         <div className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">
-          <div className="mx-auto h-full">
+          <div className="mx-auto h-full max-w-5xl w-full">
             <Outlet />
           </div>
         </div>
