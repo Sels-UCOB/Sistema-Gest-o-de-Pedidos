@@ -12,7 +12,7 @@
   import { Checkbox } from "@/components/ui/checkbox";
   import { Camera, FileText, Truck, Printer, Search } from "lucide-react";
   import { format } from "date-fns";
-  import html2pdf from 'html2pdf.js';
+
 
   export default function ShipmentsPage() {
     const [activeTab, setActiveTab] = useState("create");
@@ -38,6 +38,7 @@
     // Report filters
     const [reportStartDate, setReportStartDate] = useState("");
     const [reportEndDate, setReportEndDate] = useState("");
+    
     
     const handleCreateShipment = async () => {
       if (selectedOrderIds.length === 0) {
@@ -99,7 +100,8 @@
       reader.readAsDataURL(file);
     };
 
-    const handlePrintReport = () => {
+    const handlePrintReport = async () => {
+      const html2pdf = (await import('html2pdf.js')).default;
   const filtered = shipments?.filter(s => {
     if (reportStartDate && new Date(s.shippingDate) < new Date(reportStartDate)) return false;
     if (reportEndDate && new Date(s.shippingDate) > new Date(reportEndDate)) return false;
