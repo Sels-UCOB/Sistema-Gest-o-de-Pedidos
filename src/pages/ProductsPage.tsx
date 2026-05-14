@@ -106,8 +106,8 @@ export default function ProductsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">Lista de Produtos</h1>
-          <p className="text-slate-400">Importe e gerencie seus produtos base.</p>
+          <h1 className="text-2xl sm:text-3xl tracking-tight text-white">Lista de Produtos</h1>
+          <p className="text-slate-500">Importe e gerencie seus produtos base.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
           <Button variant="outline" onClick={() => document.getElementById("csv-upload")?.click()} className="w-full sm:w-auto">
@@ -162,7 +162,6 @@ export default function ProductsPage() {
             </form>
           </CardContent>
         </Card>
-
         {/* LIST */}
         <Card className="lg:col-span-2 border-slate-800 bg-slate-900/50">
           <CardHeader>

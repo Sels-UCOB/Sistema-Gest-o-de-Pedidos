@@ -12,6 +12,7 @@
   import { Checkbox } from "@/components/ui/checkbox";
   import { Camera, FileText, Truck, Printer, Search } from "lucide-react";
   import { format } from "date-fns";
+  import html2pdf from 'html2pdf.js';
 
   export default function ShipmentsPage() {
     const [activeTab, setActiveTab] = useState("create");
@@ -99,173 +100,124 @@
     };
 
     const handlePrintReport = () => {
-    const filtered = shipments?.filter(s => {
-      if (reportStartDate && new Date(s.shippingDate) < new Date(reportStartDate)) return false;
-      if (reportEndDate && new Date(s.shippingDate) > new Date(reportEndDate)) return false;
-      return true;
-    }) || [];
+  const filtered = shipments?.filter(s => {
+    if (reportStartDate && new Date(s.shippingDate) < new Date(reportStartDate)) return false;
+    if (reportEndDate && new Date(s.shippingDate) > new Date(reportEndDate)) return false;
+    return true;
+  }) || [];
 
-    const html = `<!DOCTYPE html><html><head>
-      <meta charset="UTF-8"/>
-      <title>Relatório de Envios — Sels UCOB</title>
-      <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 32px; background: white; }
-        
-        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; border-bottom: 3px solid #1e293b; padding-bottom: 12px; }
-        .header-left h1 { font-size: 22px; font-weight: bold; color: #1e293b; }
-        .header-left p { font-size: 11px; color: #64748b; margin-top: 2px; }
-        .header-right { text-align: right; font-size: 11px; color: #64748b; }
-        .header-right strong { font-size: 16px; color: #1e293b; display: block; }
+  const element = document.createElement('div');
+  element.style.padding = '32px';
+  element.style.fontFamily = 'Arial, sans-serif';
+  element.style.fontSize = '12px';
+  element.style.color = '#111';
+  element.style.background = 'white';
 
-        .envio { border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 32px; page-break-inside: avoid; overflow: hidden; }
-        
-        .envio-header { background: #1e293b; color: white; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; }
-        .envio-header span { font-size: 13px; font-weight: bold; }
-        .envio-header .badge { background: #3b82f6; padding: 2px 10px; border-radius: 20px; font-size: 11px; }
-        .envio-header .badge.presencial { background: #10b981; }
-
-        .secao { padding: 12px 16px; border-bottom: 1px solid #e2e8f0; }
-        .secao-titulo { font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; margin-bottom: 8px; }
-        
-        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-        .campo { border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 10px; }
-        .campo label { display: block; font-size: 9px; text-transform: uppercase; color: #94a3b8; font-weight: bold; margin-bottom: 2px; }
-        .campo span { font-size: 12px; color: #1e293b; font-weight: 500; }
-
-        .pedido { margin: 8px 0; border: 1px solid #e2e8f0; border-radius: 4px; overflow: hidden; }
-        .pedido-header { background: #f8fafc; padding: 8px 12px; display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; }
-        .pedido-header strong { font-size: 12px; color: #1e293b; }
-        .pedido-header span { font-size: 11px; color: #64748b; }
-        .pedido-body { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 10px 12px; align-items: start; }
-        
-        table.itens { width: 100%; border-collapse: collapse; }
-        table.itens th { background: #f1f5f9; text-align: left; font-size: 10px; text-transform: uppercase; color: #64748b; padding: 4px 8px; border: 1px solid #e2e8f0; }
-        table.itens td { padding: 4px 8px; border: 1px solid #e2e8f0; font-size: 11px; }
-        table.itens tr:nth-child(even) td { background: #f8fafc; }
-
-        .foto-box { text-align: center; }
-        .foto-box p { font-size: 9px; text-transform: uppercase; color: #94a3b8; font-weight: bold; margin-bottom: 4px; }
-        .foto-box img { max-width: 120px; max-height: 100px; border: 1px solid #e2e8f0; border-radius: 4px; object-fit: cover; }
-
-        .comprovantes { padding: 12px 16px; }
-        .comprovantes-titulo { font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; margin-bottom: 8px; }
-        .comprovantes-grid { display: flex; gap: 8px; flex-wrap: wrap; }
-        .comprovantes-grid img { max-width: 150px; max-height: 120px; border: 1px solid #e2e8f0; border-radius: 4px; object-fit: cover; }
-
-        .rodape { text-align: center; font-size: 10px; color: #94a3b8; margin-top: 24px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
-        @media print { body { padding: 16px; } .envio { page-break-inside: avoid; } }
-      </style>
-    </head><body>
-
-      <div class="header">
-        <div class="header-left">
-          <h1>Sels UCOB</h1>
-          <p>Relatório de Envios e Pedidos</p>
-          <p>Gerado em: ${format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
-        </div>
-        <div class="header-right">
-          <strong>${filtered.length}</strong>
-          envio(s) neste relatório
-        </div>
+  element.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;border-bottom:3px solid #1e293b;padding-bottom:12px;">
+      <div>
+        <h1 style="font-size:22px;font-weight:bold;color:#1e293b;">Sels UCOB</h1>
+        <p style="font-size:11px;color:#64748b;margin-top:2px;">Relatório de Envios e Pedidos</p>
+        <p style="font-size:11px;color:#64748b;">Gerado em: ${format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
       </div>
+      <div style="text-align:right;font-size:11px;color:#64748b;">
+        <strong style="font-size:16px;color:#1e293b;display:block;">${filtered.length}</strong>
+        envio(s) neste relatório
+      </div>
+    </div>
 
-      ${filtered.map((shipment, si) => {
-        const orders = shipment.orderIds
-          .map(oid => allOrders?.find(o => o.id === oid))
-          .filter(Boolean) as Order[];
+    ${filtered.map((shipment, si) => {
+      const orders = shipment.orderIds
+        .map(oid => allOrders?.find(o => o.id === oid))
+        .filter(Boolean) as Order[];
 
-        return `
-        <div class="envio">
-          <div class="envio-header">
-            <span>Envio ${si + 1} — ${format(shipment.shippingDate, 'dd/MM/yyyy')}</span>
-            <span class="badge ${shipment.type === 'presencial' ? 'presencial' : ''}">
-              ${shipment.type === 'transportadora' ? 'Transportadora' : 'Retirada Presencial'}
-            </span>
-          </div>
+      return `
+      <div style="border:1px solid #cbd5e1;border-radius:6px;margin-bottom:32px;overflow:hidden;">
+        <div style="background:#1e293b;color:white;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;font-weight:bold;">Envio ${si + 1} — ${format(shipment.shippingDate, 'dd/MM/yyyy')}</span>
+          <span style="background:${shipment.type === 'presencial' ? '#10b981' : '#3b82f6'};padding:2px 10px;border-radius:20px;font-size:11px;">
+            ${shipment.type === 'transportadora' ? 'Transportadora' : 'Retirada Presencial'}
+          </span>
+        </div>
 
-          <div class="secao">
-            <div class="secao-titulo">Informações de Transporte</div>
-            <div class="grid3">
-              <div class="campo">
-                <label>Transportadora</label>
-                <span>${shipment.carrierName || '—'}</span>
-              </div>
-              <div class="campo">
-                <label>Telefone</label>
-                <span>${shipment.carrierPhone || '—'}</span>
-              </div>
-              <div class="campo">
-                <label>Previsão de Chegada</label>
-                <span>${shipment.estimatedArrival ? format(shipment.estimatedArrival, 'dd/MM/yyyy') : '—'}</span>
-              </div>
+        <div style="padding:12px 16px;border-bottom:1px solid #e2e8f0;">
+          <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#64748b;margin-bottom:8px;">Informações de Transporte</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+            <div style="border:1px solid #e2e8f0;border-radius:4px;padding:6px 10px;">
+              <label style="display:block;font-size:9px;text-transform:uppercase;color:#94a3b8;font-weight:bold;margin-bottom:2px;">Transportadora</label>
+              <span style="font-size:12px;color:#1e293b;font-weight:500;">${shipment.carrierName || '—'}</span>
+            </div>
+            <div style="border:1px solid #e2e8f0;border-radius:4px;padding:6px 10px;">
+              <label style="display:block;font-size:9px;text-transform:uppercase;color:#94a3b8;font-weight:bold;margin-bottom:2px;">Telefone</label>
+              <span style="font-size:12px;color:#1e293b;font-weight:500;">${shipment.carrierPhone || '—'}</span>
+            </div>
+            <div style="border:1px solid #e2e8f0;border-radius:4px;padding:6px 10px;">
+              <label style="display:block;font-size:9px;text-transform:uppercase;color:#94a3b8;font-weight:bold;margin-bottom:2px;">Previsão de Chegada</label>
+              <span style="font-size:12px;color:#1e293b;font-weight:500;">${shipment.estimatedArrival ? format(shipment.estimatedArrival, 'dd/MM/yyyy') : '—'}</span>
             </div>
           </div>
+        </div>
 
-          <div class="secao">
-            <div class="secao-titulo">Pedidos (${orders.length})</div>
-            ${orders.map(order => `
-              <div class="pedido">
-                <div class="pedido-header">
-                  <strong>${order.customerName} — ${order.destinationCity}</strong>
-                  <span>Campanha: ${order.campaignCode} | Resp: ${order.responsible}</span>
-                </div>
-                <div class="pedido-body">
-                  <table class="itens">
-                    <thead>
+        <div style="padding:12px 16px;">
+          <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#64748b;margin-bottom:8px;">Pedidos (${orders.length})</div>
+          ${orders.map(order => `
+            <div style="margin:8px 0;border:1px solid #e2e8f0;border-radius:4px;overflow:hidden;">
+              <div style="background:#f8fafc;padding:8px 12px;display:flex;justify-content:space-between;border-bottom:1px solid #e2e8f0;">
+                <strong style="font-size:12px;color:#1e293b;">${order.customerName} — ${order.destinationCity}</strong>
+                <span style="font-size:11px;color:#64748b;">Campanha: ${order.campaignCode} | Resp: ${order.responsible}</span>
+              </div>
+              <div style="padding:10px 12px;">
+                <table style="width:100%;border-collapse:collapse;">
+                  <thead>
+                    <tr>
+                      <th style="background:#f1f5f9;text-align:left;font-size:10px;text-transform:uppercase;color:#64748b;padding:4px 8px;border:1px solid #e2e8f0;">Qtd</th>
+                      <th style="background:#f1f5f9;text-align:left;font-size:10px;text-transform:uppercase;color:#64748b;padding:4px 8px;border:1px solid #e2e8f0;">Produto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${order.items.map(it => `
                       <tr>
-                        <th>Qtd</th>
-                        <th>Produto</th>
+                        <td style="width:40px;text-align:center;padding:4px 8px;border:1px solid #e2e8f0;font-size:11px;">${it.quantity}x</td>
+                        <td style="padding:4px 8px;border:1px solid #e2e8f0;font-size:11px;">${it.name}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      ${order.items.map(it => `
-                        <tr>
-                          <td style="width:40px;text-align:center">${it.quantity}x</td>
-                          <td>${it.name}</td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
-                  </table>
-                  ${order.packedPhotoUrl ? `
-                    <div class="foto-box">
-                      <p>Caixa Fechada</p>
-                      <img src="${order.packedPhotoUrl}" alt="Caixa fechada"/>
-                    </div>
-                  ` : ''}
-                </div>
-              </div>
-            `).join('')}
-          </div>
-
-          ${shipment.receiptPhotoUrls && shipment.receiptPhotoUrls.length > 0 ? `
-            <div class="comprovantes">
-              <div class="comprovantes-titulo">Comprovantes de Envio</div>
-              <div class="comprovantes-grid">
-                ${shipment.receiptPhotoUrls.map(url => `<img src="${url}" alt="Comprovante"/>`).join('')}
+                    `).join('')}
+                  </tbody>
+                </table>
               </div>
             </div>
-          ` : ''}
-        </div>`;
-      }).join('')}
+          `).join('')}
+        </div>
 
-      <div class="rodape">Sels UCOB — Sistema de Gestão de Pedidos</div>
-    </body></html>`;
+        ${shipment.receiptPhotoUrls && shipment.receiptPhotoUrls.length > 0 ? `
+          <div style="padding:12px 16px;">
+            <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#64748b;margin-bottom:8px;">Comprovantes de Envio</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              ${shipment.receiptPhotoUrls.map(url => `<img src="${url}" style="max-width:150px;max-height:120px;border:1px solid #e2e8f0;border-radius:4px;object-fit:cover;" />`).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </div>`;
+    }).join('')}
 
-    const win = window.open('', '_blank');
-    if (win) {
-      win.document.write(html);
-      win.document.close();
-      setTimeout(() => win.print(), 500);
-    }
-  }; 
+    <div style="text-align:center;font-size:10px;color:#94a3b8;margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;">
+      Sels UCOB — Sistema de Gestão de Pedidos
+    </div>
+  `;
+
+  html2pdf().set({
+    margin: 8,
+    filename: `relatorio-envios-${format(new Date(), 'dd-MM-yyyy')}.pdf`,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2 },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  }).from(element).save();
+};
   return (
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-white">Gestão de Envios</h1>
-            <p className="text-slate-400">Agrupe pedidos e gere envios.</p>
+            <h1 className="text-2xl sm:text-3xl tracking-tight text-white">Gestão de Envios</h1>
+            <p className="text-slate-500">Agrupe pedidos e gere envios.</p>
           </div>
         </div>
 
@@ -278,7 +230,7 @@
 
           <TabsContent value="list" className="mt-6">
             <Card>
-              <CardContent className="p-0 overflow-x-auto">
+              <CardContent className="p-0 overflow-x-auto hidden md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -292,7 +244,7 @@
                   <TableBody>
                       {shipments?.map(shipment => (
                       <TableRow key={shipment.id}>
-                        <TableCell>{format(shipment.shippingDate, 'dd/MM/yyyy')}</TableCell>
+                        <TableCell>{format(shipment.shippingDate, 'dd/MM/yy')}</TableCell>
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="font-medium capitalize">{shipment.type}</span>
@@ -322,6 +274,30 @@
                   </TableBody>
                 </Table>
               </CardContent>
+              {/* Cards — visível só em mobile */}
+<CardContent className="p-3 flex flex-col gap-3 md:hidden">
+  {shipments?.map(shipment => (
+    <div key={shipment.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-900/50">
+      <div className="flex flex-col gap-1">
+        <span className="font-bold text-white text-sm">
+          {shipment.type === "transportadora" ? shipment.carrierName : "Retirada Presencial"}
+        </span>
+        <span className="text-xs text-slate-400">
+          {format(shipment.shippingDate, 'dd/MM/yyyy')} · {shipment.orderIds.length} pedidos
+        </span>
+        <span className={`mt-1 w-fit px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${shipment.status === "shipped" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}`}>
+          {shipment.status === "shipped" ? "Enviado" : "Aguardando"}
+        </span>
+      </div>
+      <Button size="sm" variant="outline" onClick={() => setActiveShipmentId(shipment.id)}>
+        Comprovantes
+      </Button>
+    </div>
+  ))}
+  {(!shipments || shipments.length === 0) && (
+    <p className="text-center py-8 text-slate-500 text-sm">Nenhum envio registrado.</p>
+  )}
+</CardContent>
             </Card>
           </TabsContent>
 
@@ -350,7 +326,7 @@
                     {shippingType === "transportadora" && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label>Nome da Transportadora</Label>
+                          <Label>Transportadora</Label>
                           <Input value={carrierName} onChange={e => setCarrierName(e.target.value)} />
                         </div>
                         <div className="space-y-2">
@@ -359,23 +335,26 @@
                         </div>
                       </div>
                     )}
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Data de Envio</Label>
-                        <Input type="date" value={shippingDate} onChange={e => setShippingDate(e.target.value)} />
-                      </div>
-                    {shippingType === "presencial" && (
-                      <div className="space-y-2">
-                        <Label>Nome de Quem Retirou</Label>
-                        <Input
-                          placeholder="Nome completo"
-                          value={pickupName}
-                          onChange={(e) => setPickupName(e.target.value)}
-                        />
-                      </div>
-                    )}
-                    </div>
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div className="space-y-2">
+    <Label>Data de Envio</Label>
+    <Input type="date" value={shippingDate} onChange={e => setShippingDate(e.target.value)} />
+  </div>
+  <div className="space-y-2">
+    <Label>Previsão de Chegada</Label>
+    <Input type="date" value={estimatedArrival} onChange={e => setEstimatedArrival(e.target.value)} />
+  </div>
+  {shippingType === "presencial" && (
+    <div className="space-y-2">
+      <Label>Nome de Quem Retirou</Label>
+      <Input
+        placeholder="Nome completo"
+        value={pickupName}
+        onChange={(e) => setPickupName(e.target.value)}
+      />
+    </div>
+  )}
+</div>
                     
                     <Button className="w-full" onClick={handleCreateShipment}>
                       <Truck className="mr-2 h-4 w-4" /> Finalizar Envio
@@ -451,7 +430,7 @@
             return (
               <div key={shipment.id} className="border p-4 rounded-lg break-inside-avoid shadow-sm mb-6">
                 <h2 className="text-xl font-bold bg-slate-100 p-2 rounded flex justify-between">
-                  <span>Envio - {format(shipment.shippingDate, 'dd/MM/yyyy')}</span>
+                  <span>Envio - {format(shipment.shippingDate, 'dd/MM/yy')}</span>
                   <span>{shipment.type.toUpperCase()}</span>
                 </h2>
                 
@@ -461,7 +440,7 @@
                     <p><strong>Telefone:</strong> {shipment.carrierPhone || "N/A"}</p>
                   </div>
                   <div>
-                    <p><strong>Previsão de Chegada:</strong> {shipment.estimatedArrival ? format(shipment.estimatedArrival, 'dd/MM/yyyy') : "N/A"}</p>
+                    <p><strong>Previsão de Chegada:</strong> {shipment.estimatedArrival ? format(shipment.estimatedArrival, 'dd/MM/yy') : "N/A"}</p>
                   </div>
                 </div>
 

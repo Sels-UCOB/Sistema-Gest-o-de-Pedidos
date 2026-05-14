@@ -13,7 +13,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Camera, Search, PlusCircle, CheckCircle2, ChevronRight, Package, Box } from "lucide-react";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { flushSync } from "react-dom";
 
 export default function OrdersPage() {
   const [activeTab, setActiveTab] = useState("create");
@@ -227,8 +226,8 @@ localStorage.removeItem('orderForm');
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">Gestão de Pedidos</h1>
-          <p className="text-slate-400">Crie, separe e acompanhe os pedidos.</p>
+          <h1 className="text-2xl sm:text-3xl tracking-tight text-white">Gestão de Pedidos</h1>
+          <p className="text-slate-500">Crie, separe e acompanhe os pedidos.</p>
         </div>
       </div>
 
@@ -288,7 +287,7 @@ localStorage.removeItem('orderForm');
             </Card>
           ) : (
             <Card>
-              <CardContent className="p-0 overflow-x-auto">
+              <CardContent className="p-0 overflow-x-auto hidden md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -328,6 +327,27 @@ localStorage.removeItem('orderForm');
                   </TableBody>
                 </Table>
               </CardContent>
+              {/* Cards — visível só em mobile */}
+  <CardContent className="p-3 flex flex-col gap-3 md:hidden">
+    {orders?.map(order => (
+      <div key={order.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-900/50">
+        <div className="flex flex-col gap-1">
+          <span className="font-bold text-white text-sm">{order.customerName}</span>
+          <span className="text-xs text-slate-400">{order.items.length} itens · {format(order.createdAt, 'dd/MM HH:mm')}</span>
+          <span className={`mt-1 w-fit px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${order.status === 'pending' ? 'bg-slate-800 text-slate-400' : order.status === 'separating' ? 'bg-amber-500/10 text-amber-500' : order.status === 'closed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-indigo-500/10 text-indigo-400'}`}>
+            {statusMap[order.status].label}
+          </span>
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => setSeparatingOrder(order)}>
+          {order.status === 'pending' || order.status === 'separating' ? "Separar" : "Ver"}
+          <ChevronRight className="ml-1 h-4 w-4" />
+        </Button>
+      </div>
+    ))}
+    {(!orders || orders.length === 0) && (
+      <p className="text-center py-8 text-slate-500 text-sm">Nenhum pedido encontrado.</p>
+    )}
+  </CardContent>
             </Card>
           )}
         </TabsContent>
