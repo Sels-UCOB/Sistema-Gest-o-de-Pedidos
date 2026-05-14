@@ -100,119 +100,129 @@
       reader.readAsDataURL(file);
     };
 
-    const handlePrintReport = async () => {
-      const html2pdf = (await import('html2pdf.js')).default;
+    const handlePrintReport = () => {
   const filtered = shipments?.filter(s => {
     if (reportStartDate && new Date(s.shippingDate) < new Date(reportStartDate)) return false;
     if (reportEndDate && new Date(s.shippingDate) > new Date(reportEndDate)) return false;
     return true;
   }) || [];
 
-  const element = document.createElement('div');
-  element.style.padding = '32px';
-  element.style.fontFamily = 'Arial, sans-serif';
-  element.style.fontSize = '12px';
-  element.style.color = '#111';
-  element.style.background = 'white';
+  const win = window.open('', '_blank');
+  if (!win) return;
 
-  element.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;border-bottom:3px solid #1e293b;padding-bottom:12px;">
-      <div>
-        <h1 style="font-size:22px;font-weight:bold;color:#1e293b;">Sels UCOB</h1>
-        <p style="font-size:11px;color:#64748b;margin-top:2px;">Relatório de Envios e Pedidos</p>
-        <p style="font-size:11px;color:#64748b;">Gerado em: ${format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
+  win.document.write(`<!DOCTYPE html><html><head>
+    <meta charset="UTF-8"/>
+    <title>Relatório de Envios — Sels UCOB</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 32px; background: white; }
+      .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; border-bottom: 3px solid #1e293b; padding-bottom: 12px; }
+      .header-left h1 { font-size: 22px; font-weight: bold; color: #1e293b; }
+      .header-left p { font-size: 11px; color: #64748b; margin-top: 2px; }
+      .header-right { text-align: right; font-size: 11px; color: #64748b; }
+      .header-right strong { font-size: 16px; color: #1e293b; display: block; }
+      .envio { border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 32px; page-break-inside: avoid; overflow: hidden; }
+      .envio-header { background: #1e293b; color: white; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; }
+      .envio-header span { font-size: 13px; font-weight: bold; }
+      .badge { padding: 2px 10px; border-radius: 20px; font-size: 11px; color: white; }
+      .secao { padding: 12px 16px; border-bottom: 1px solid #e2e8f0; }
+      .secao-titulo { font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; margin-bottom: 8px; }
+      .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+      .campo { border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 10px; }
+      .campo label { display: block; font-size: 9px; text-transform: uppercase; color: #94a3b8; font-weight: bold; margin-bottom: 2px; }
+      .campo span { font-size: 12px; color: #1e293b; font-weight: 500; }
+      .pedido { margin: 8px 0; border: 1px solid #e2e8f0; border-radius: 4px; overflow: hidden; }
+      .pedido-header { background: #f8fafc; padding: 8px 12px; display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; }
+      .pedido-header strong { font-size: 12px; color: #1e293b; }
+      .pedido-header span { font-size: 11px; color: #64748b; }
+      table.itens { width: calc(100% - 24px); border-collapse: collapse; margin: 10px 12px; }
+      table.itens th { background: #f1f5f9; text-align: left; font-size: 10px; text-transform: uppercase; color: #64748b; padding: 4px 8px; border: 1px solid #e2e8f0; }
+      table.itens td { padding: 4px 8px; border: 1px solid #e2e8f0; font-size: 11px; }
+      .comprovantes { padding: 12px 16px; }
+      .comprovantes-titulo { font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; margin-bottom: 8px; }
+      .comprovantes-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+      .comprovantes-grid img { max-width: 150px; max-height: 120px; border: 1px solid #e2e8f0; border-radius: 4px; object-fit: cover; }
+      .rodape { text-align: center; font-size: 10px; color: #94a3b8; margin-top: 24px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
+      @media print { body { padding: 16px; } .envio { page-break-inside: avoid; } }
+    </style>
+  </head><body>
+  <div style="margin-bottom:24px;">
+  <a href="${window.location.origin}" style="font-family:Arial,sans-serif;font-size:13px;color:#4f46e5;text-decoration:none;font-weight:bold;">
+    ← Voltar ao Sistema
+  </a>
+</div>
+    <div class="header">
+      <div class="header-left">
+        <h1>Sels UCOB</h1>
+        <p>Relatório de Envios e Pedidos</p>
+        <p>Gerado em: ${format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
       </div>
-      <div style="text-align:right;font-size:11px;color:#64748b;">
-        <strong style="font-size:16px;color:#1e293b;display:block;">${filtered.length}</strong>
+      <div class="header-right">
+        <strong>${filtered.length}</strong>
         envio(s) neste relatório
       </div>
     </div>
-
     ${filtered.map((shipment, si) => {
       const orders = shipment.orderIds
         .map(oid => allOrders?.find(o => o.id === oid))
         .filter(Boolean) as Order[];
-
       return `
-      <div style="border:1px solid #cbd5e1;border-radius:6px;margin-bottom:32px;overflow:hidden;">
-        <div style="background:#1e293b;color:white;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:13px;font-weight:bold;">Envio ${si + 1} — ${format(shipment.shippingDate, 'dd/MM/yyyy')}</span>
-          <span style="background:${shipment.type === 'presencial' ? '#10b981' : '#3b82f6'};padding:2px 10px;border-radius:20px;font-size:11px;">
+      <div class="envio">
+        <div class="envio-header">
+          <span>Envio ${si + 1} — ${format(shipment.shippingDate, 'dd/MM/yyyy')}</span>
+          <span class="badge" style="background:${shipment.type === 'presencial' ? '#10b981' : '#3b82f6'};">
             ${shipment.type === 'transportadora' ? 'Transportadora' : 'Retirada Presencial'}
           </span>
         </div>
-
-        <div style="padding:12px 16px;border-bottom:1px solid #e2e8f0;">
-          <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#64748b;margin-bottom:8px;">Informações de Transporte</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
-            <div style="border:1px solid #e2e8f0;border-radius:4px;padding:6px 10px;">
-              <label style="display:block;font-size:9px;text-transform:uppercase;color:#94a3b8;font-weight:bold;margin-bottom:2px;">Transportadora</label>
-              <span style="font-size:12px;color:#1e293b;font-weight:500;">${shipment.carrierName || '—'}</span>
-            </div>
-            <div style="border:1px solid #e2e8f0;border-radius:4px;padding:6px 10px;">
-              <label style="display:block;font-size:9px;text-transform:uppercase;color:#94a3b8;font-weight:bold;margin-bottom:2px;">Telefone</label>
-              <span style="font-size:12px;color:#1e293b;font-weight:500;">${shipment.carrierPhone || '—'}</span>
-            </div>
-            <div style="border:1px solid #e2e8f0;border-radius:4px;padding:6px 10px;">
-              <label style="display:block;font-size:9px;text-transform:uppercase;color:#94a3b8;font-weight:bold;margin-bottom:2px;">Previsão de Chegada</label>
-              <span style="font-size:12px;color:#1e293b;font-weight:500;">${shipment.estimatedArrival ? format(shipment.estimatedArrival, 'dd/MM/yyyy') : '—'}</span>
-            </div>
+        <div class="secao">
+          <div class="secao-titulo">Informações de Transporte</div>
+          <div class="grid3">
+            <div class="campo"><label>Transportadora</label><span>${shipment.carrierName || '—'}</span></div>
+            <div class="campo"><label>Telefone</label><span>${shipment.carrierPhone || '—'}</span></div>
+            <div class="campo"><label>Previsão de Chegada</label><span>${shipment.estimatedArrival ? format(shipment.estimatedArrival, 'dd/MM/yyyy') : '—'}</span></div>
           </div>
         </div>
-
-        <div style="padding:12px 16px;">
-          <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#64748b;margin-bottom:8px;">Pedidos (${orders.length})</div>
+        <div class="secao">
+          <div class="secao-titulo">Pedidos (${orders.length})</div>
           ${orders.map(order => `
-            <div style="margin:8px 0;border:1px solid #e2e8f0;border-radius:4px;overflow:hidden;">
-              <div style="background:#f8fafc;padding:8px 12px;display:flex;justify-content:space-between;border-bottom:1px solid #e2e8f0;">
-                <strong style="font-size:12px;color:#1e293b;">${order.customerName} — ${order.destinationCity}</strong>
-                <span style="font-size:11px;color:#64748b;">Campanha: ${order.campaignCode} | Resp: ${order.responsible}</span>
+            <div class="pedido">
+              <div class="pedido-header">
+                <strong>${order.customerName} — ${order.destinationCity}</strong>
+                <span>Campanha: ${order.campaignCode} | Resp: ${order.responsible}</span>
               </div>
-              <div style="padding:10px 12px;">
-                <table style="width:100%;border-collapse:collapse;">
-                  <thead>
+              <table class="itens">
+                <thead><tr><th>Qtd</th><th>Produto</th></tr></thead>
+                <tbody>
+                  ${order.items.map(it => `
                     <tr>
-                      <th style="background:#f1f5f9;text-align:left;font-size:10px;text-transform:uppercase;color:#64748b;padding:4px 8px;border:1px solid #e2e8f0;">Qtd</th>
-                      <th style="background:#f1f5f9;text-align:left;font-size:10px;text-transform:uppercase;color:#64748b;padding:4px 8px;border:1px solid #e2e8f0;">Produto</th>
+                      <td style="width:40px;text-align:center">${it.quantity}x</td>
+                      <td>${it.name}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    ${order.items.map(it => `
-                      <tr>
-                        <td style="width:40px;text-align:center;padding:4px 8px;border:1px solid #e2e8f0;font-size:11px;">${it.quantity}x</td>
-                        <td style="padding:4px 8px;border:1px solid #e2e8f0;font-size:11px;">${it.name}</td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              </div>
+                  `).join('')}
+                </tbody>
+              </table>
             </div>
           `).join('')}
         </div>
-
-        ${shipment.receiptPhotoUrls && shipment.receiptPhotoUrls.length > 0 ? `
-          <div style="padding:12px 16px;">
-            <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#64748b;margin-bottom:8px;">Comprovantes de Envio</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              ${shipment.receiptPhotoUrls.map(url => `<img src="${url}" style="max-width:150px;max-height:120px;border:1px solid #e2e8f0;border-radius:4px;object-fit:cover;" />`).join('')}
+        ${shipment.receiptPhotoUrls?.length ? `
+          <div class="comprovantes">
+            <div class="comprovantes-titulo">Comprovantes de Envio</div>
+            <div class="comprovantes-grid">
+              ${shipment.receiptPhotoUrls.map(url => `<img src="${url}" />`).join('')}
             </div>
           </div>
         ` : ''}
       </div>`;
     }).join('')}
+    <div class="rodape">Sels UCOB — Sistema de Gestão de Pedidos</div>
+  </body></html>`);
 
-    <div style="text-align:center;font-size:10px;color:#94a3b8;margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;">
-      Sels UCOB — Sistema de Gestão de Pedidos
-    </div>
-  `;
-
-  html2pdf().set({
-    margin: 8,
-    filename: `relatorio-envios-${format(new Date(), 'dd-MM-yyyy')}.pdf`,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2 },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-  }).from(element).save();
+  win.document.close();
+  win.focus();
+  setTimeout(() => {
+    win.print();
+    win.close();
+  }, 500);
 };
   return (
       <div className="space-y-6">

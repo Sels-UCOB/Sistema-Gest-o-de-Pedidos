@@ -459,7 +459,7 @@ onKeyDown={e => {
                     <Textarea 
                       rows={10} 
                       className="font-mono text-sm leading-relaxed whitespace-pre-wrap"
-                      placeholder="Ex:&#10;10 - vida de jesus&#10;5 21 dias para mudar"
+                      placeholder="Ex:&#10;10 - vida de jesus&#10;5 - 21 dias para mudar"
                       value={rawItems} 
                       onBlur={() => setTimeout(() => setSuggestions([]), 150)}
                      onChange={e => {
