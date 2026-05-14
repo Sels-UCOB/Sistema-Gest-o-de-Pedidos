@@ -170,7 +170,7 @@ export default function ProductsPage() {
           </CardHeader>
           <CardContent>
             {products && products.length > 0 ? (
-              <div className="rounded-md border max-h-[600px] overflow-y-auto">
+              <div className="rounded-md border max-h-[600px] overflow-y-auto overflow-x-auto">
                 <Table>
                   <TableHeader className="bg-slate-800/50 sticky top-0">
                     <TableRow>

@@ -26,7 +26,7 @@ export default function Layout() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 transform flex flex-col border-r border-slate-800 bg-slate-900/90 md:bg-slate-900/50 backdrop-blur-md transition-transform duration-200 ease-in-out md:static md:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 w-64 transform flex flex-col border-r border-slate-350 bg-slate-900/90 md:bg-slate-900/50 backdrop-blur-md transition-transform duration-200 ease-in-out md:static md:translate-x-0",
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
