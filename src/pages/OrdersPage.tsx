@@ -16,17 +16,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { flushSync } from "react-dom";
 
 export default function OrdersPage() {
-  const [activeTab, setActiveTab] = useState("create ");
+  const [activeTab, setActiveTab] = useState("create");
   const products = useLiveQuery(() => db.products.toArray());
   const orders = useLiveQuery(() => db.orders.orderBy("createdAt").reverse().toArray());
-
-  // Create Order State
   const [customerName, setCustomerName] = useState("");
   const [campaignCode, setCampaignCode] = useState("");
   const [destinationCity, setDestinationCity] = useState("");
   const [responsible, setResponsible] = useState("");
   const [rawItems, setRawItems] = useState("");
-  // Persiste o formulário no localStorage
+
   React.useEffect(() => {
   const saved = localStorage.getItem('orderForm');
   if (saved) {
@@ -44,10 +42,9 @@ export default function OrdersPage() {
     customerName, campaignCode, destinationCity, responsible, rawItems
   }));
 }, [customerName, campaignCode, destinationCity, responsible, rawItems]);
+
   const [parsedItems, setParsedItems] = useState<OrderItem[]>([]);
   const [showPreview, setShowPreview] = useState(false);
-
-  
   const [separatingOrder, setSeparatingOrder] = useState<Order | null>(null);
   const [photoItemQueue, setPhotoItemQueue] = useState<OrderItem | null>(null);
   const [packedPhotoQueue, setPackedPhotoQueue] = useState<Order | null>(null);
@@ -78,13 +75,11 @@ export default function OrdersPage() {
   const [ambiguousItems, setAmbiguousItems] = useState<{idx: number, query: string, options: {id: string, name: string}[]}[]>([]);
   const [manualSearch, setManualSearch] = useState<{idx: number, query: string} | null>(null);
   const [manualSearchResults, setManualSearchResults] = useState<{id: string, name: string}[]>([]);
-
-const handleParseItems = () => {
+  const handleParseItems = () => {
   if (!products) return;
   const lines = rawItems.split("\n").filter(l => l.trim().length > 0);
   const newParsed: OrderItem[] = [];
   const newAmbiguous: {idx: number, query: string, options: {id: string, name: string}[]}[] = [];
-
   for (const line of lines) {
     let qty = 1;
     let nameStr = line;
@@ -161,7 +156,6 @@ try {
         createdAt: Date.now()
       });
       setCustomResponsible("");
-      // reset
       setCustomerName("");
       setCampaignCode("");
       setDestinationCity("");
@@ -174,18 +168,15 @@ try {
       console.error(err);
       alert("Erro ao criar pedido.");
       setActiveTab("list");
-localStorage.removeItem('orderForm'); // ← aqui, linha 174
+localStorage.removeItem('orderForm');
     }
   };
-
   const toggleSeparation = async (order: Order, itemIndex: number) => {
     const item = order.items[itemIndex];
     if (!item.isSeparated) {
-      // Prompt for photo
       setPhotoItemQueue({ ...item });
       setSeparatingOrder(order);
     } else {
-      // Just uncheck
       const newItems = [...order.items];
       newItems[itemIndex].isSeparated = false;
       newItems[itemIndex].photoUrl = undefined;
@@ -193,15 +184,12 @@ localStorage.removeItem('orderForm'); // ← aqui, linha 174
       setSeparatingOrder({ ...order, items: newItems });
     }
   };
-
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>, type: 'item' | 'packed') => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const base64 = ev.target?.result as string;
-
       if (type === 'item' && photoItemQueue && separatingOrder) {
         const newItems = separatingOrder.items.map(it => 
           it.productId === photoItemQueue.productId 
@@ -212,7 +200,6 @@ localStorage.removeItem('orderForm'); // ← aqui, linha 174
         await db.orders.update(separatingOrder.id, { items: newItems, status: updatedStatus });
         setSeparatingOrder({ ...separatingOrder, items: newItems, status: updatedStatus });
         setPhotoItemQueue(null);
-
         if (newItems.every(i => i.isSeparated)) {
   const packedData = { ...separatingOrder, items: newItems, status: updatedStatus };
   setTimeout(() => {
@@ -230,14 +217,12 @@ localStorage.removeItem('orderForm'); // ← aqui, linha 174
     };
     reader.readAsDataURL(file);
   };
-
   const statusMap = {
     pending: { label: "Pendente", color: "bg-yellow-100 text-yellow-800" },
     separating: { label: "Separando", color: "bg-blue-100 text-blue-800" },
     closed: { label: "Fechado", color: "bg-green-100 text-green-800" },
     shipped: { label: "Enviado", color: "bg-purple-100 text-purple-800" },
   };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -249,8 +234,8 @@ localStorage.removeItem('orderForm'); // ← aqui, linha 174
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2 md:w-[400px]">
-          <TabsTrigger value="create" >Criar Pedido</TabsTrigger>
-          <TabsTrigger value="list" >Gerenciar Pedidos</TabsTrigger>
+          <TabsTrigger value="create" >Criar</TabsTrigger>
+          <TabsTrigger value="list" >Gerenciar</TabsTrigger>
         </TabsList>
         
         <TabsContent value="list" className="mt-6">
@@ -303,7 +288,7 @@ localStorage.removeItem('orderForm'); // ← aqui, linha 174
             </Card>
           ) : (
             <Card>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -317,7 +302,7 @@ localStorage.removeItem('orderForm'); // ← aqui, linha 174
                   <TableBody>
                     {orders?.map(order => (
                       <TableRow key={order.id}>
-                        <TableCell className="text-slate-400">{format(order.createdAt, 'dd/MM/yyyy HH:mm')}</TableCell>
+                        <TableCell className="text-slate-400">{format(order.createdAt, 'dd/MM HH:mm')}</TableCell>
                         <TableCell className="font-bold text-white">{order.customerName}</TableCell>
                         <TableCell className="text-slate-300">{order.items.length} itens</TableCell>
                         <TableCell>
@@ -346,7 +331,6 @@ localStorage.removeItem('orderForm'); // ← aqui, linha 174
             </Card>
           )}
         </TabsContent>
-        
         <TabsContent value="create" className="mt-6">
           <Card>
             <CardHeader>
@@ -483,7 +467,7 @@ onKeyDown={e => {
   }
 }}
                     />  {suggestions.length > 0 && (
-<  div className="absolute z-50 w-full bg-slate-800 border border-slate-700 rounded-md shadow-lg mt-1 max-h-60 overflow-y-auto">
+<div className="absolute z-50 w-full max-w-[calc(100vw-2rem)] bg-slate-800 border border-slate-700 rounded-md shadow-lg mt-1 max-h-60 overflow-y-auto">
     {suggestions.map(s => (
       <div
         key={s.id}
@@ -524,7 +508,6 @@ onKeyDown={e => {
           </Card>
         </TabsContent>
       </Tabs>
-
       {/* Dialog Preview Items for Order Creation */}
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
         <DialogContent className="max-w-md border-slate-800 bg-slate-900">

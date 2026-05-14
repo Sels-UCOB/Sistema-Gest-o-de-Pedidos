@@ -271,14 +271,14 @@
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full print:hidden">
           <TabsList className="grid w-full grid-cols-3 md:w-[600px]">
-          <TabsTrigger value="create">Novo Envio</TabsTrigger>
-          <TabsTrigger value="list">Lista de Envios</TabsTrigger>
+          <TabsTrigger value="create">Novo</TabsTrigger>
+          <TabsTrigger value="list">Lista</TabsTrigger>
           <TabsTrigger value="reports">Relatórios</TabsTrigger>
           </TabsList>
 
           <TabsContent value="list" className="mt-6">
             <Card>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -348,7 +348,7 @@
                     </div>
 
                     {shippingType === "transportadora" && (
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Nome da Transportadora</Label>
                           <Input value={carrierName} onChange={e => setCarrierName(e.target.value)} />
@@ -414,7 +414,7 @@
 
           <TabsContent value="reports" className="mt-6 space-y-6">
             <Card>
-              <CardHeader className="flex flex-row justify-between items-center">
+              <CardHeader className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
                   <CardTitle>Relatórios e Exportação</CardTitle>
                   <CardDescription>Visualize o espelho dos envios ou pedidos</CardDescription>
