@@ -49,6 +49,7 @@ export default function ShipmentsPage() {
         carrierName: shippingType === "transportadora" ? carrierName : undefined,
         carrierPhone: shippingType === "transportadora" ? carrierPhone : undefined,
         shippingDate: new Date(shippingDate).getTime(),
+        pickupName: shippingType === "presencial" ? pickupName : undefined,
         orderIds: selectedOrderIds,
         status: "pending",
         createdAt: Date.now(),
@@ -63,6 +64,7 @@ export default function ShipmentsPage() {
       setCarrierName("");
       setCarrierPhone("");
       setShippingDate(format(new Date(), "yyyy-MM-dd"));
+      setPickupName("");
       setSelectedOrderIds([]);
       setActiveTab("list");
     } catch (err) {
