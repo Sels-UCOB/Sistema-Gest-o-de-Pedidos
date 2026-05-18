@@ -173,7 +173,6 @@ export default function ShipmentsPage() {
             <div class="grid3">
               <div class="campo"><label>Transportadora</label><span>${shipment.carrierName || '—'}</span></div>
               <div class="campo"><label>Telefone</label><span>${shipment.carrierPhone || '—'}</span></div>
-              <div class="campo"><label>Previsão de Chegada</label><span>${shipment.estimatedArrival ? format(shipment.estimatedArrival, 'dd/MM/yyyy') : '—'}</span></div>
             </div>
           </div>
           <div class="secao">
