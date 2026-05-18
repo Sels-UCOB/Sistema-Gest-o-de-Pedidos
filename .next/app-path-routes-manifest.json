@@ -1,7 +1,0 @@
-{
-  "/page": "/",
-  "/(main)/orders/page": "/orders",
-  "/(main)/products/page": "/products",
-  "/(main)/shipments/page": "/shipments",
-  "/_not-found/page": "/_not-found"
-}

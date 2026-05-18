@@ -1,7 +1,0 @@
-{
-  "/page": "app/page.js",
-  "/(main)/orders/page": "app/(main)/orders/page.js",
-  "/(main)/products/page": "app/(main)/products/page.js",
-  "/(main)/shipments/page": "app/(main)/shipments/page.js",
-  "/_not-found/page": "app/_not-found/page.js"
-}
