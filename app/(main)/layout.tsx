@@ -1,12 +1,71 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Package, ShoppingCart, Truck } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { Package, ShoppingCart, Truck, LogOut, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
+import type { User } from "@supabase/supabase-js";
+
+type Profile = { full_name: string | null; role: "admin" | "operator" };
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { router.replace("/"); return; }
+      setUser(session.user);
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name, role")
+        .eq("id", session.user.id)
+        .single();
+      setProfile(data);
+      setAuthChecked(true);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) { router.replace("/"); return; }
+      setUser(session.user);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.replace("/");
+  };
+
+  const displayName = profile?.full_name || user?.email || "";
+  const userInitial = displayName[0]?.toUpperCase() ?? "";
+  const isAdmin = profile?.role === "admin";
+
+  if (!authChecked) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-950">
+        <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   const navItems = [
     { to: "/products", icon: Package, label: "Catálogo" },
@@ -61,7 +120,37 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           <span className="font-semibold text-white uppercase tracking-wider">
             {navItems.find((i) => pathname.startsWith(i.to))?.label || "Dashboard"}
           </span>
-          <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700" />
+
+          {/* User menu */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className="w-8 h-8 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-300 text-sm font-bold hover:bg-indigo-600/30 transition-colors"
+            >
+              {userInitial}
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 top-10 w-60 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl shadow-black/50 py-1.5 z-50">
+                <div className="px-4 py-2.5 border-b border-slate-800">
+                  <p className="text-sm font-medium text-white truncate">{displayName}</p>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    {isAdmin && <Shield className="w-3 h-3 text-indigo-400" />}
+                    <p className="text-xs text-slate-500 capitalize">
+                      {isAdmin ? "Administrador" : "Operador"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sair
+                </button>
+              </div>
+            )}
+          </div>
         </header>
 
         <div className="flex-1 overflow-auto p-4 pb-24 md:pb-8 md:p-6 lg:p-8">
