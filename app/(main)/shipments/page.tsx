@@ -28,7 +28,6 @@ export default function ShipmentsPage() {
   const [carrierName, setCarrierName] = useState("");
   const [carrierPhone, setCarrierPhone] = useState("");
   const [shippingDate, setShippingDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [estimatedArrival, setEstimatedArrival] = useState("");
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
 
   const [activeShipmentId, setActiveShipmentId] = useState<string | null>(null);
@@ -50,7 +49,6 @@ export default function ShipmentsPage() {
         carrierName: shippingType === "transportadora" ? carrierName : undefined,
         carrierPhone: shippingType === "transportadora" ? carrierPhone : undefined,
         shippingDate: new Date(shippingDate).getTime(),
-        estimatedArrival: estimatedArrival ? new Date(estimatedArrival).getTime() : undefined,
         orderIds: selectedOrderIds,
         status: "pending",
         createdAt: Date.now(),
@@ -65,7 +63,6 @@ export default function ShipmentsPage() {
       setCarrierName("");
       setCarrierPhone("");
       setShippingDate(format(new Date(), "yyyy-MM-dd"));
-      setEstimatedArrival("");
       setSelectedOrderIds([]);
       setActiveTab("list");
     } catch (err) {
@@ -345,10 +342,6 @@ export default function ShipmentsPage() {
                     <div className="space-y-2">
                       <Label>Data de Envio</Label>
                       <Input type="date" value={shippingDate} onChange={e => setShippingDate(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Previsão de Chegada</Label>
-                      <Input type="date" value={estimatedArrival} onChange={e => setEstimatedArrival(e.target.value)} />
                     </div>
                     {shippingType === "presencial" && (
                       <div className="space-y-2">
