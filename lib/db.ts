@@ -32,7 +32,7 @@ export interface Shipment {
   carrierName?: string;
   carrierPhone?: string;
   shippingDate: number;
-  estimatedArrival?: number;
+  pickupName?: string;
   orderIds: string[];
   status: "pending" | "shipped";
   receiptPhotoUrls?: string[];
