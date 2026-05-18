@@ -449,7 +449,7 @@ export default function OrdersPage() {
                   <div className="space-y-2 relative">
                     <label className="text-sm font-medium flex justify-between">
                       Produtos e Quantidades
-                      <span className="text-xs text-slate-400 font-normal">Coloque 1 item por linha (ex: 10 - Vida de Jesus)</span>
+                      <span className="text-xs text-slate-400 font-normal">Coloque 1 item por linha</span>
                     </label>
                     <Textarea
                       rows={10}
