@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Order, OrderItem, Product } from "@/lib/db";
-import { getProducts, getOrders, getOrderFull, addOrder, updateOrder, deductInventoryStock } from "@/lib/supabase-db";
+import { getProducts, getOrders, getOrderFull, addOrder, updateOrder, deductInventoryStock, getInventory } from "@/lib/supabase-db";
+import type { InventoryRow } from "@/lib/supabase-db";
 import { CAMPO_MAP, WAREHOUSES, WarehouseId } from "@/lib/campos";
 import { findBestMatch } from "@/lib/string-utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -30,6 +31,7 @@ export default function OrdersPage() {
   const [activeTab, setActiveTab] = useState("create");
   const [products, setProducts] = useState<Product[] | undefined>(undefined);
   const [orders, setOrders] = useState<Order[] | undefined>(undefined);
+  const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [campaignCode, setCampaignCode] = useState("");
   const [destinationCity, setDestinationCity] = useState("");
@@ -42,6 +44,7 @@ export default function OrdersPage() {
 
   useEffect(() => {
     getProducts().then(setProducts).catch(console.error);
+    getInventory().then(setInventory).catch(console.error);
     loadOrders();
   }, [loadOrders]);
 
@@ -76,6 +79,17 @@ export default function OrdersPage() {
   const warehouseOptions = campaignCode
     ? WAREHOUSES.filter(w => w.campo === CAMPO_MAP[campaignCode])
     : [];
+
+  const stockMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of inventory) {
+      map.set(`${row.product_id}__${row.warehouse_id}`, row.quantity);
+    }
+    return map;
+  }, [inventory]);
+
+  const getStock = (productId: string) =>
+    warehouse ? (stockMap.get(`${productId}__${warehouse}`) ?? 0) : null;
   const [errors, setErrors] = useState<{customerName?: string, destinationCity?: string}>({});
   const [suggestions, setSuggestions] = useState<{id: string, name: string}[]>([]);
   const [ambiguousItems, setAmbiguousItems] = useState<{idx: number, query: string, options: {id: string, name: string}[]}[]>([]);
@@ -133,6 +147,18 @@ export default function OrdersPage() {
 
     if (!warehouse) { alert("Selecione o depósito de origem."); return; }
     if (parsedItems.length === 0) { alert("Adicione pelo menos um item ao pedido."); return; }
+
+    const semEstoque = parsedItems
+      .filter(item => !item.productId.startsWith("unknown-"))
+      .filter(item => (stockMap.get(`${item.productId}__${warehouse}`) ?? 0) < item.quantity);
+    if (semEstoque.length > 0) {
+      const lista = semEstoque.map(i => {
+        const disp = stockMap.get(`${i.productId}__${warehouse}`) ?? 0;
+        return `• ${i.name}: pedido ${i.quantity}, disponível ${disp}`;
+      }).join("\n");
+      const ok = confirm(`Estoque insuficiente para:\n\n${lista}\n\nDeseja criar o pedido mesmo assim?`);
+      if (!ok) return;
+    }
     if (ambiguousItems.length > 0) {
       alert("Existem itens com múltiplas opções. Selecione o produto correto para cada um antes de confirmar.");
       return;
@@ -520,8 +546,17 @@ export default function OrdersPage() {
                 {parsedItems.map((item, idx) => !item.productId.startsWith('unknown-') && (
                   <div key={idx} className="bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
                     <span className="text-white font-bold text-sm">{item.quantity}x</span>
-                    <span className="text-slate-200 text-sm">{item.name}</span>
-                    <span className="text-slate-500 font-mono text-xs ml-auto">{item.productId}</span>
+                    <span className="text-slate-200 text-sm flex-1">{item.name}</span>
+                    {(() => {
+                      const disp = getStock(item.productId);
+                      if (disp === null) return null;
+                      const ok = disp >= item.quantity;
+                      return (
+                        <span className={`text-xs font-mono ${ok ? "text-emerald-400" : "text-red-400"}`}>
+                          {disp} em estoque
+                        </span>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
