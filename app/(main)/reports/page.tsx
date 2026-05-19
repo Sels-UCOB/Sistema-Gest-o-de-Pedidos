@@ -22,7 +22,7 @@ interface ReportRow {
 }
 
 export default function ReportsPage() {
-  const { profileLoaded } = useUserRole();
+  const { profileLoaded, refreshTick } = useUserRole();
   const [orders, setOrders] = useState<Order[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,7 +46,7 @@ export default function ReportsPage() {
     }
   }, []);
 
-  useEffect(() => { if (!profileLoaded) return; load(); }, [load, profileLoaded]);
+  useEffect(() => { if (!profileLoaded) return; load(); }, [load, profileLoaded, refreshTick]);
 
   const shipmentMap = useMemo(() => new Map(shipments.map(s => [s.id, s])), [shipments]);
 

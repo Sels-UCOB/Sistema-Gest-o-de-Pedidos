@@ -21,7 +21,7 @@ import { useUserRole } from "@/lib/user-context";
 
 
 export default function OrdersPage() {
-  const { displayName, isAdmin, campo, profileLoaded } = useUserRole();
+  const { displayName, isAdmin, campo, profileLoaded, refreshTick } = useUserRole();
 
   const CAMPANHAS = useMemo(() => {
     const all = Object.keys(CAMPO_MAP).sort();
@@ -51,7 +51,7 @@ export default function OrdersPage() {
     getProducts().then(setProducts).catch(() => setProducts([]));
     getInventory().then(setInventory).catch(() => setInventory([]));
     loadOrders();
-  }, [loadOrders, profileLoaded]);
+  }, [loadOrders, profileLoaded, refreshTick]);
 
   useEffect(() => {
     const saved = localStorage.getItem('orderForm');

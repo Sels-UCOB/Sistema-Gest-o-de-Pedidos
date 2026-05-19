@@ -11,8 +11,13 @@ export async function getProducts(): Promise<Product[]> {
 }
 
 export async function upsertProducts(products: Product[]): Promise<void> {
-  const { error } = await supabase.from("products").upsert(products, { onConflict: "id" });
-  if (error) throw error;
+  const CHUNK = 500;
+  for (let i = 0; i < products.length; i += CHUNK) {
+    const { error } = await supabase
+      .from("products")
+      .upsert(products.slice(i, i + CHUNK), { onConflict: "id" });
+    if (error) throw error;
+  }
 }
 
 export async function upsertProduct(product: Product): Promise<void> {

@@ -7,7 +7,7 @@ import {
   deleteProduct as deleteProductDb, clearProducts,
   getInventory, addInventoryStock, bulkSetInventory, InventoryRow,
 } from "@/lib/supabase-db";
-import { WAREHOUSES, WarehouseId, CampoId } from "@/lib/campos";
+import { WAREHOUSES, WarehouseId } from "@/lib/campos";
 import { useUserRole } from "@/lib/user-context";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,14 +17,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Upload, Plus, Trash2, Edit2, Check, X, PackagePlus } from "lucide-react";
 
-const CAMPO_TABS: Array<{ id: CampoId; label: string }> = [
-  { id: "GO", label: "Sede" },
-  { id: "MT", label: "MT"  },
-  { id: "MS", label: "MS"  },
-];
-
 export default function ProductsPage() {
-  const { isAdmin, campo, profileLoaded } = useUserRole();
+  const { isAdmin, campo, profileLoaded, refreshTick } = useUserRole();
   const [products, setProducts] = useState<Product[] | undefined>(undefined);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -40,11 +34,18 @@ export default function ProductsPage() {
   const [importDialog, setImportDialog] = useState(false);
   const [importWarehouse, setImportWarehouse] = useState<WarehouseId>("SEDE_EXT");
   const [importing, setImporting] = useState(false);
-  const [campoFilter, setCampoFilter] = useState<CampoId | "ALL">("GO");
+  const [selectedWarehouse, setSelectedWarehouse] = useState<WarehouseId | "">("");
+
+  const availableWarehouses = useMemo(
+    () => isAdmin || !campo ? [...WAREHOUSES] : WAREHOUSES.filter(w => w.campo === campo),
+    [isAdmin, campo],
+  );
 
   useEffect(() => {
-    if (!isAdmin && campo) setCampoFilter(campo);
-  }, [isAdmin, campo]);
+    if (!selectedWarehouse && availableWarehouses.length > 0) {
+      setSelectedWarehouse(availableWarehouses[0].id);
+    }
+  }, [availableWarehouses, selectedWarehouse]);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -68,7 +69,7 @@ export default function ProductsPage() {
     if (!profileLoaded) return;
     loadProducts();
     loadInventory();
-  }, [loadProducts, loadInventory, profileLoaded]);
+  }, [loadProducts, loadInventory, profileLoaded, refreshTick]);
 
   const inventoryMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -77,11 +78,6 @@ export default function ProductsPage() {
     }
     return map;
   }, [inventory]);
-
-  const visibleWarehouses = useMemo(
-    () => campoFilter === "ALL" ? [...WAREHOUSES] : WAREHOUSES.filter(w => w.campo === campoFilter),
-    [campoFilter],
-  );
 
   const filteredProducts = useMemo(() => products ?? [], [products]);
 
@@ -106,7 +102,6 @@ export default function ProductsPage() {
       const norm = (s: string) =>
         s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
 
-      // Detecta coluna Produto pelo cabeçalho
       let productColIdx = 1;
       outer1: for (let ri = 0; ri < Math.min(rows.length, 20); ri++) {
         const row = rows[ri] as unknown[];
@@ -116,7 +111,6 @@ export default function ProductsPage() {
         }
       }
 
-      // Estratégia 1: procura header "Saldo Final" nas primeiras linhas
       let saldoColIdx = -1;
       outer2: for (let ri = 0; ri < Math.min(rows.length, 20); ri++) {
         const row = rows[ri] as unknown[];
@@ -126,7 +120,6 @@ export default function ProductsPage() {
         }
       }
 
-      // Estratégia 2: 7º valor numérico na 1ª linha de produto
       if (saldoColIdx < 0) {
         for (const r of rows) {
           const row = r as unknown[];
@@ -175,7 +168,10 @@ export default function ProductsPage() {
 
       await upsertProducts(newProducts);
       if (inventoryRows.length > 0) {
-        await bulkSetInventory(inventoryRows);
+        const CHUNK = 500;
+        for (let i = 0; i < inventoryRows.length; i += CHUNK) {
+          await bulkSetInventory(inventoryRows.slice(i, i + CHUNK));
+        }
       }
       await loadProducts();
       await loadInventory();
@@ -196,7 +192,7 @@ export default function ProductsPage() {
     [products, entryCode],
   );
 
-  const handleEntry = async (e: React.FormEvent) => {
+  const handleEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const code = entryCode.trim();
     const name = existingProduct ? existingProduct.name : entryName.trim();
@@ -264,11 +260,7 @@ export default function ProductsPage() {
     }
   };
 
-  const filterTabs = isAdmin
-    ? [...CAMPO_TABS, { id: "ALL" as const, label: "Todos" }]
-    : campo
-      ? CAMPO_TABS.filter(t => t.id === campo)
-      : CAMPO_TABS;
+  const selectedWarehouseLabel = WAREHOUSES.find(w => w.id === selectedWarehouse)?.label ?? "";
 
   return (
     <div className="space-y-6">
@@ -295,7 +287,8 @@ export default function ProductsPage() {
       </div>
 
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-4">
-        <Card className="lg:col-span-1 border-slate-800 bg-slate-900/50">
+        {isAdmin && (
+          <Card className="lg:col-span-1 border-slate-800 bg-slate-900/50">
             <CardHeader>
               <CardTitle className="text-lg">Entrada de Material</CardTitle>
               <CardDescription>
@@ -358,8 +351,9 @@ export default function ProductsPage() {
               </form>
             </CardContent>
           </Card>
+        )}
 
-        <Card className="lg:col-span-3 border-slate-800 bg-slate-900/50">
+        <Card className={`${isAdmin ? "lg:col-span-3" : "lg:col-span-4"} border-slate-800 bg-slate-900/50`}>
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -368,25 +362,23 @@ export default function ProductsPage() {
                 </CardTitle>
                 {isAdmin && (
                   <CardDescription className="mt-1">
-                    Clique no número para adicionar estoque ao depósito.
+                    Clique em + para adicionar estoque ao depósito selecionado.
                   </CardDescription>
                 )}
               </div>
-              <div className="flex gap-1 bg-slate-800 p-1 rounded-lg self-start sm:self-auto">
-                {filterTabs.map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setCampoFilter(tab.id)}
-                    className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                      campoFilter === tab.id
-                        ? "bg-indigo-600 text-white"
-                        : "text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              <Select
+                value={selectedWarehouse}
+                onValueChange={(v) => setSelectedWarehouse(v as WarehouseId)}
+              >
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectValue placeholder="Selecione o depósito..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableWarehouses.map(w => (
+                    <SelectItem key={w.id} value={w.id}>{w.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </CardHeader>
           <CardContent>
@@ -398,78 +390,70 @@ export default function ProductsPage() {
                   <TableHeader className="bg-slate-800/50 sticky top-0">
                     <TableRow>
                       <TableHead className="w-[90px]">Código</TableHead>
-                      <TableHead className="min-w-[180px]">Nome</TableHead>
-                      {visibleWarehouses.map(w => (
-                        <TableHead key={w.id} className="text-center whitespace-nowrap text-xs w-[90px]">
-                          {w.label.replace(/^(Sede|MT|MS)\s*—\s*/, "")}
-                        </TableHead>
-                      ))}
+                      <TableHead>Nome</TableHead>
+                      <TableHead className="text-center w-[120px]">Estoque</TableHead>
                       {isAdmin && <TableHead className="w-[80px] text-right">Ações</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredProducts.map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell className="font-mono text-xs text-slate-400">{p.id}</TableCell>
-                        <TableCell>
-                          {isAdmin && editingId === p.id ? (
-                            <div className="flex items-center gap-2">
-                              <Input
-                                value={editName}
-                                onChange={(e) => setEditName(e.target.value)}
-                                className="h-8"
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") saveEdit(p.id);
-                                  if (e.key === "Escape") setEditingId(null);
-                                }}
-                              />
-                              <Button size="icon" variant="ghost" onClick={() => saveEdit(p.id)} className="h-8 w-8 text-green-600">
-                                <Check className="h-4 w-4" />
-                              </Button>
-                              <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} className="h-8 w-8 text-slate-400">
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <span className="text-slate-200 text-sm">{p.name}</span>
-                          )}
-                        </TableCell>
-                        {visibleWarehouses.map(w => {
-                          const qty = getStock(p.id, w.id);
-                          return (
-                            <TableCell key={w.id} className="text-center p-2">
-                              {isAdmin ? (
-                                <button
-                                  onClick={() => openStockDialog(p.id, p.name, w.id)}
-                                  className="group inline-flex items-center gap-1 rounded px-2 py-1 hover:bg-indigo-500/10 transition-colors"
-                                  title={`Adicionar estoque — ${w.label}`}
-                                >
-                                  <span className={qty === 0 ? "text-slate-600 text-sm" : "text-slate-200 text-sm font-medium"}>
-                                    {qty}
-                                  </span>
-                                  <Plus className="h-3 w-3 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                </button>
-                              ) : (
-                                <span className={qty === 0 ? "text-slate-600 text-sm" : "text-slate-200 text-sm font-medium"}>
-                                  {qty}
-                                </span>
-                              )}
-                            </TableCell>
-                          );
-                        })}
-                        {isAdmin && (
-                          <TableCell className="text-right p-2">
-                            <Button size="icon" variant="ghost" onClick={() => startEditing(p)} className="h-8 w-8 text-slate-400 hover:text-white">
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(p.id)} className="h-8 w-8 text-red-500">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                    {filteredProducts.map((p) => {
+                      const qty = selectedWarehouse ? getStock(p.id, selectedWarehouse) : 0;
+                      return (
+                        <TableRow key={p.id}>
+                          <TableCell className="font-mono text-xs text-slate-400">{p.id}</TableCell>
+                          <TableCell>
+                            {isAdmin && editingId === p.id ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={editName}
+                                  onChange={(e) => setEditName(e.target.value)}
+                                  className="h-8"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") saveEdit(p.id);
+                                    if (e.key === "Escape") setEditingId(null);
+                                  }}
+                                />
+                                <Button size="icon" variant="ghost" onClick={() => saveEdit(p.id)} className="h-8 w-8 text-green-600">
+                                  <Check className="h-4 w-4" />
+                                </Button>
+                                <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} className="h-8 w-8 text-slate-400">
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-slate-200 text-sm">{p.name}</span>
+                            )}
                           </TableCell>
-                        )}
-                      </TableRow>
-                    ))}
+                          <TableCell className="text-center p-2">
+                            <div className="inline-flex items-center justify-center gap-2">
+                              <span className={`text-sm tabular-nums ${qty === 0 ? "text-slate-600" : "text-slate-200 font-medium"}`}>
+                                {qty}
+                              </span>
+                              {isAdmin && selectedWarehouse && (
+                                <button
+                                  onClick={() => openStockDialog(p.id, p.name, selectedWarehouse)}
+                                  className="rounded p-0.5 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
+                                  title={`Adicionar estoque — ${selectedWarehouseLabel}`}
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </TableCell>
+                          {isAdmin && (
+                            <TableCell className="text-right p-2">
+                              <Button size="icon" variant="ghost" onClick={() => startEditing(p)} className="h-8 w-8 text-slate-400 hover:text-white">
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                              <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(p.id)} className="h-8 w-8 text-red-500">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -487,7 +471,7 @@ export default function ProductsPage() {
       </div>
 
       {/* Import dialog */}
-      <Dialog open={importDialog} onOpenChange={setImportDialog}>
+      <Dialog open={importDialog} onOpenChange={(open) => { if (!importing) setImportDialog(open); }}>
         <DialogContent className="max-w-sm border-slate-800 bg-slate-900">
           <DialogHeader>
             <DialogTitle className="text-white">Importar XLS</DialogTitle>

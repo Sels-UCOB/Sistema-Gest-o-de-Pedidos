@@ -19,8 +19,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const lastHiddenRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,7 +38,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       setUser(session.user);
       setAuthChecked(true);
 
-      // Carrega perfil na sessão inicial e após login — TOKEN_REFRESHED não precisa recarregar
       if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
         const { data } = await supabase
           .from("profiles")
@@ -46,6 +47,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         if (cancelled) return;
         if (data) setProfile(data);
         setProfileLoaded(true);
+      } else if (event === "TOKEN_REFRESHED") {
+        setRefreshTick(t => t + 1);
       }
     });
 
@@ -53,6 +56,20 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       cancelled = true;
       subscription.unsubscribe();
     };
+  }, [router]);
+
+  useEffect(() => {
+    const onVisibility = async () => {
+      if (document.visibilityState === "hidden") {
+        lastHiddenRef.current = Date.now();
+      } else if (Date.now() - lastHiddenRef.current > 5 * 60 * 1000) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) { router.replace("/"); return; }
+        setRefreshTick(t => t + 1);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [router]);
 
   useEffect(() => {
@@ -173,7 +190,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
         <div className="flex-1 overflow-auto p-4 pb-24 md:pb-8 md:p-6 lg:p-8">
           <div className="mx-auto h-full max-w-5xl w-full">
-            <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded }}>
+            <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded, refreshTick }}>
               {children}
             </UserContext.Provider>
           </div>

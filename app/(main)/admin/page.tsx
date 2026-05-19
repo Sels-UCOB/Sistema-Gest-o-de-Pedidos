@@ -15,7 +15,7 @@ const CAMPO_TABS: Array<{ id: CampoId; label: string }> = [
 ];
 
 export default function AdminPage() {
-  const { isAdmin, profileLoaded } = useUserRole();
+  const { isAdmin, profileLoaded, refreshTick } = useUserRole();
   const router = useRouter();
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,7 +28,7 @@ export default function AdminPage() {
       .then(setProfiles)
       .catch(() => alert("Erro ao carregar usuários."))
       .finally(() => setLoading(false));
-  }, [isAdmin, profileLoaded, router]);
+  }, [isAdmin, profileLoaded, router, refreshTick]);
 
   const handleChange = async (id: string, field: "role" | "campo", value: string) => {
     setSaving(id);

@@ -16,7 +16,7 @@ import { format } from "date-fns";
 import { useUserRole } from "@/lib/user-context";
 
 export default function ShipmentsPage() {
-  const { profileLoaded } = useUserRole();
+  const { profileLoaded, refreshTick } = useUserRole();
   const [activeTab, setActiveTab] = useState("create");
   const [pickupName, setPickupName] = useState("");
   const [allOrders, setAllOrders] = useState<Order[] | undefined>(undefined);
@@ -44,7 +44,7 @@ export default function ShipmentsPage() {
     if (!profileLoaded) return;
     loadOrders();
     loadShipments();
-  }, [loadOrders, loadShipments, profileLoaded]);
+  }, [loadOrders, loadShipments, profileLoaded, refreshTick]);
 
   const closedOrders = allOrders?.filter(o => o.status === "closed") || [];
 
