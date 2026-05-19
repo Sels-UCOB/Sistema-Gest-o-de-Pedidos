@@ -297,7 +297,7 @@ export default function ShipmentsPage() {
               <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg cursor-pointer flex-col items-center gap-2 justify-center" })}>
                 <Camera className="h-8 w-8 shrink-0" />
                 <span>Adicionar Foto</span>
-                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleReceiptPhotoCapture} />
+                <input type="file" accept="image/*" className="hidden" onChange={handleReceiptPhotoCapture} />
               </label>
               {shipments?.find(s => s.id === activeShipmentId)?.receiptPhotoUrls?.map((url, i) => (
                 <img key={i} src={url} alt="Comprovante" className="max-h-48 object-cover border rounded" />

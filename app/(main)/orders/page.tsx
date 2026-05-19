@@ -661,7 +661,7 @@ export default function OrdersPage() {
                 <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg bg-green-600 hover:bg-green-700 text-white cursor-pointer flex-col items-center gap-2 justify-center" })}>
                   <Package className="h-8 w-8 shrink-0" />
                   <span>Foto do Pedido Embalado</span>
-                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePhotoCapture(e, 'packed')} />
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => handlePhotoCapture(e, 'packed')} />
                 </label>
               </>
             ) : (
@@ -671,7 +671,7 @@ export default function OrdersPage() {
                 <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg cursor-pointer flex-col items-center gap-2 justify-center" })}>
                   <Camera className="h-8 w-8 shrink-0" />
                   <span>Tirar Foto / Anexar</span>
-                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePhotoCapture(e, 'item')} />
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => handlePhotoCapture(e, 'item')} />
                 </label>
               </>
             )}
