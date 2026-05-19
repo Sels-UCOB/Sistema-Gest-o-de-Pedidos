@@ -208,19 +208,19 @@ export default function ReportsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Date row */}
-          <div className="flex flex-wrap gap-4">
-            <div className="space-y-1.5 flex-1 min-w-[130px]">
-              <Label>Data inicial</Label>
-              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+          <div className="grid grid-cols-2 gap-3 md:flex md:flex-wrap md:gap-4">
+            <div className="space-y-1.5 md:flex-1">
+              <Label className="text-xs md:text-sm">Data inicial</Label>
+              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="h-9 text-xs md:h-10 md:text-sm" />
             </div>
-            <div className="space-y-1.5 flex-1 min-w-[130px]">
-              <Label>Data final</Label>
-              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            <div className="space-y-1.5 md:flex-1">
+              <Label className="text-xs md:text-sm">Data final</Label>
+              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="h-9 text-xs md:h-10 md:text-sm" />
             </div>
-            <div className="space-y-1.5 flex-1 min-w-[130px]">
-              <Label>Campo</Label>
+            <div className="space-y-1.5 md:flex-1">
+              <Label className="text-xs md:text-sm">Campo</Label>
               <Select value={campoFilter} onValueChange={v => v !== null && setCampoFilter(v)}>
-                <SelectTrigger className="h-10 text-sm">
+                <SelectTrigger className="h-9 text-xs md:h-10 md:text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -231,10 +231,10 @@ export default function ReportsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5 flex-1 min-w-[130px]">
-              <Label>Responsável</Label>
+            <div className="space-y-1.5 md:flex-1">
+              <Label className="text-xs md:text-sm">Responsável</Label>
               <Select value={responsibleFilter} onValueChange={v => v !== null && setResponsibleFilter(v)}>
-                <SelectTrigger className="h-10 text-sm">
+                <SelectTrigger className="h-9 text-xs md:h-10 md:text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
