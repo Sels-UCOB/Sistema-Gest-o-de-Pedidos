@@ -225,8 +225,12 @@ export default function OrdersPage() {
       const newItems = order.items.map((it, i) =>
         i === itemIndex ? { ...it, isSeparated: false, photoUrl: undefined } : it
       );
-      await updateOrder(order.id, { items: newItems });
-      setSeparatingOrder({ ...order, items: newItems });
+      try {
+        await updateOrder(order.id, { items: newItems });
+        setSeparatingOrder({ ...order, items: newItems });
+      } catch {
+        alert("Erro ao atualizar item. Tente novamente.");
+      }
     }
   };
 

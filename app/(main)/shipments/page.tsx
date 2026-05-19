@@ -60,6 +60,8 @@ export default function ShipmentsPage() {
 
   const handleCreateShipment = async () => {
     if (selectedOrderIds.length === 0) { alert("Selecione pelo menos um pedido!"); return; }
+    if (shippingType === "transportadora" && !carrierName.trim()) { alert("Informe o nome da transportadora."); return; }
+    if (shippingType === "presencial" && !pickupName.trim()) { alert("Informe o nome de quem vai retirar."); return; }
     if (submitting) return;
     setSubmitting(true);
     try {

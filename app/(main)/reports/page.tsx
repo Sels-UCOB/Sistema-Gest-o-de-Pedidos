@@ -207,34 +207,34 @@ export default function ReportsPage() {
           </Button>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Date row */}
-          <div className="grid grid-cols-2 gap-3 md:flex md:flex-wrap md:gap-4">
-            <div className="space-y-1.5 md:flex-1">
-              <Label className="text-xs md:text-sm">Data inicial</Label>
-              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="h-9 text-xs md:h-10 md:text-sm" />
+          {/* Filters row */}
+          <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:gap-4">
+            <div className="space-y-1 md:space-y-1.5 md:flex-1">
+              <Label className="text-[10px] uppercase tracking-wide text-slate-400 md:text-sm md:normal-case md:tracking-normal md:text-slate-300">De</Label>
+              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="text-sm md:text-sm" />
             </div>
-            <div className="space-y-1.5 md:flex-1">
-              <Label className="text-xs md:text-sm">Data final</Label>
-              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="h-9 text-xs md:h-10 md:text-sm" />
+            <div className="space-y-1 md:space-y-1.5 md:flex-1">
+              <Label className="text-[10px] uppercase tracking-wide text-slate-400 md:text-sm md:normal-case md:tracking-normal md:text-slate-300">Até</Label>
+              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="text-sm md:text-sm" />
             </div>
-            <div className="space-y-1.5 md:flex-1">
-              <Label className="text-xs md:text-sm">Campo</Label>
+            <div className="space-y-1 md:space-y-1.5 md:flex-1">
+              <Label className="text-[10px] uppercase tracking-wide text-slate-400 md:text-sm md:normal-case md:tracking-normal md:text-slate-300">Campo</Label>
               <Select value={campoFilter} onValueChange={v => v !== null && setCampoFilter(v)}>
-                <SelectTrigger className="h-9 text-xs md:h-10 md:text-sm">
+                <SelectTrigger className="text-xs h-8 md:h-10 md:text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ALL">Todos os campos</SelectItem>
+                  <SelectItem value="ALL">Todos</SelectItem>
                   <SelectItem value="GO">Sede</SelectItem>
                   <SelectItem value="MT">MT</SelectItem>
                   <SelectItem value="MS">MS</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5 md:flex-1">
-              <Label className="text-xs md:text-sm">Responsável</Label>
+            <div className="space-y-1 md:space-y-1.5 md:flex-1">
+              <Label className="text-[10px] uppercase tracking-wide text-slate-400 md:text-sm md:normal-case md:tracking-normal md:text-slate-300">Responsável</Label>
               <Select value={responsibleFilter} onValueChange={v => v !== null && setResponsibleFilter(v)}>
-                <SelectTrigger className="h-9 text-xs md:h-10 md:text-sm">
+                <SelectTrigger className="text-xs h-8 md:h-10 md:text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
