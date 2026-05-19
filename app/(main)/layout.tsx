@@ -188,7 +188,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-4 pb-24 md:pb-8 md:p-6 lg:p-8">
+        <div className="flex-1 overflow-auto p-4 pb-36 md:pb-8 md:p-6 lg:p-8">
           <div className="mx-auto h-full max-w-5xl w-full">
             <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded, refreshTick }}>
               {children}
@@ -198,7 +198,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       </main>
 
       {/* Bottom nav — mobile only */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex md:hidden border-t border-slate-800 bg-slate-900/95 backdrop-blur-md">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex md:hidden border-t border-slate-800 bg-slate-900/95 backdrop-blur-md" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {navItems.map((item) => {
           const isActive = pathname.startsWith(item.to);
           return (

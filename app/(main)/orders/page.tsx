@@ -523,7 +523,7 @@ export default function OrdersPage() {
                       </div>
                     )}
                   </div>
-                  <Button onClick={() => {
+                  <Button className="w-full md:w-auto" onClick={() => {
                     setSuggestions([]);
                     const lines = rawItems.split("\n");
                     const lastLine = lines[lines.length - 1].trim();
