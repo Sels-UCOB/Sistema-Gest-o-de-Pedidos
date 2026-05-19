@@ -172,15 +172,6 @@ export async function addShipment(shipment: Omit<Shipment, "id" | "createdAt">):
   return mapShipment(data);
 }
 
-export async function updateShipment(id: string, updates: Partial<Shipment>): Promise<void> {
-  const row: Record<string, unknown> = {};
-  if (updates.receiptPhotoUrls !== undefined) row.receipt_photo_urls = updates.receiptPhotoUrls;
-  if (updates.status !== undefined) row.status = updates.status;
-
-  const { error } = await supabase.from("shipments").update(row).eq("id", id);
-  if (error) throw error;
-}
-
 export async function appendReceiptPhoto(id: string, photoUrl: string): Promise<void> {
   const { data, error: fetchError } = await supabase
     .from("shipments")

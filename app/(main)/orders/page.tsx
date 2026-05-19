@@ -131,7 +131,7 @@ export default function OrdersPage() {
   const [errors, setErrors] = useState<{customerName?: string, destinationCity?: string}>({});
   const [suggestions, setSuggestions] = useState<{id: string, name: string}[]>([]);
   const [ambiguousItems, setAmbiguousItems] = useState<{idx: number, query: string, options: {id: string, name: string}[]}[]>([]);
-  const [manualSearch, setManualSearch] = useState<{idx: number, query: string} | null>(null);
+  const [manualSearch, setManualSearch] = useState<{idx: number} | null>(null);
   const [manualSearchResults, setManualSearchResults] = useState<{id: string, name: string}[]>([]);
 
   const handleParseItems = () => {
@@ -273,27 +273,31 @@ export default function OrdersPage() {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const base64 = ev.target?.result as string;
-      if (type === 'item' && photoItemQueue && separatingOrder && photoItemIndex !== null) {
-        const newItems = separatingOrder.items.map((it, i) =>
-          i === photoItemIndex
-            ? { ...it, isSeparated: true, photoUrl: base64 }
-            : it
-        );
-        const updatedStatus = separatingOrder.status === 'pending' ? 'separating' : separatingOrder.status;
-        await updateOrder(separatingOrder.id, { items: newItems, status: updatedStatus });
-        setSeparatingOrder({ ...separatingOrder, items: newItems, status: updatedStatus });
-        setPhotoItemQueue(null);
-        setPhotoItemIndex(null);
-        if (newItems.every(i => i.isSeparated)) {
-          const packedData = { ...separatingOrder, items: newItems, status: updatedStatus };
-          setTimeout(() => { setPackedPhotoQueue(packedData); }, 300);
+      try {
+        if (type === 'item' && photoItemQueue && separatingOrder && photoItemIndex !== null) {
+          const newItems = separatingOrder.items.map((it, i) =>
+            i === photoItemIndex
+              ? { ...it, isSeparated: true, photoUrl: base64 }
+              : it
+          );
+          const updatedStatus = separatingOrder.status === 'pending' ? 'separating' : separatingOrder.status;
+          await updateOrder(separatingOrder.id, { items: newItems, status: updatedStatus });
+          setSeparatingOrder({ ...separatingOrder, items: newItems, status: updatedStatus });
+          setPhotoItemQueue(null);
+          setPhotoItemIndex(null);
+          if (newItems.every(i => i.isSeparated)) {
+            const packedData = { ...separatingOrder, items: newItems, status: updatedStatus };
+            setTimeout(() => { setPackedPhotoQueue(packedData); }, 300);
+          }
+        } else if (type === 'packed' && packedPhotoQueue) {
+          await updateOrder(packedPhotoQueue.id, { packedPhotoUrl: base64, status: "closed" });
+          localStorage.removeItem("active_separation_order_id");
+          setSeparatingOrder(null);
+          setPackedPhotoQueue(null);
+          await loadOrders();
         }
-      } else if (type === 'packed' && packedPhotoQueue) {
-        await updateOrder(packedPhotoQueue.id, { packedPhotoUrl: base64, status: "closed" });
-        localStorage.removeItem("active_separation_order_id");
-        setSeparatingOrder(null);
-        setPackedPhotoQueue(null);
-        await loadOrders();
+      } catch {
+        alert("Erro ao salvar foto. Tente novamente.");
       }
     };
     reader.readAsDataURL(file);
@@ -488,7 +492,7 @@ export default function OrdersPage() {
                         if (e.key === "Enter") {
                           if (e.currentTarget.value.trim().length < 3 || /\d/.test(e.currentTarget.value)) {
                             setErrors(prev => ({...prev, destinationCity: "Mínimo 3 letras, sem números."}));
-                          } else { e.preventDefault(); document.getElementById("input-responsavel")?.focus(); }
+                          } else { e.preventDefault(); }
                         }
                       }}
                     />
@@ -649,7 +653,7 @@ export default function OrdersPage() {
                               .sort((a, b) => (a.name.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1) - (b.name.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1))
                               .slice(0, 8)
                           );
-                          setManualSearch({ idx, query: q });
+                          setManualSearch({ idx });
                         } else {
                           setManualSearchResults([]);
                         }
