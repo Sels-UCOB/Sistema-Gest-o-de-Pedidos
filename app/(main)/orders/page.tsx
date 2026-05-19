@@ -53,6 +53,20 @@ export default function OrdersPage() {
     loadOrders();
   }, [loadOrders, profileLoaded, refreshTick]);
 
+  // Restaura pedido ativo após primeira carga (separatingOrder como guarda evita dupla restauração)
+  useEffect(() => {
+    if (!orders || separatingOrder) return;
+    const savedId = localStorage.getItem("active_separation_order_id");
+    if (!savedId) return;
+    const order = orders.find(o => o.id === savedId && (o.status === "pending" || o.status === "separating"));
+    if (order) {
+      setActiveTab("list");
+      openSeparationView(order);
+    } else {
+      localStorage.removeItem("active_separation_order_id");
+    }
+  }, [orders]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const saved = localStorage.getItem('orderForm');
     if (saved) {
@@ -80,6 +94,25 @@ export default function OrdersPage() {
 
   const [warehouse, setWarehouse] = useState<WarehouseId | "">("");
 
+  // Persiste qual pedido estava sendo separado
+  useEffect(() => {
+    if (separatingOrder) {
+      localStorage.setItem("active_separation_order_id", separatingOrder.id);
+    } else {
+      localStorage.removeItem("active_separation_order_id");
+    }
+  }, [separatingOrder?.id]);
+
+  // Ao abrir pedido restaurado, exibe prompt de caixa se todos os itens já estão separados
+  useEffect(() => {
+    if (!separatingOrder) return;
+    if (separatingOrder.status === "closed" || separatingOrder.status === "shipped") return;
+    if (separatingOrder.packedPhotoUrl) return;
+    if (separatingOrder.items.length === 0) return;
+    if (separatingOrder.items.every(i => i.isSeparated)) {
+      setPackedPhotoQueue(separatingOrder);
+    }
+  }, [separatingOrder?.id]); // só dispara quando o pedido ativo muda, não a cada item
 
   const warehouseOptions = campaignCode
     ? WAREHOUSES.filter(w => w.campo === CAMPO_MAP[campaignCode])
@@ -257,6 +290,7 @@ export default function OrdersPage() {
         }
       } else if (type === 'packed' && packedPhotoQueue) {
         await updateOrder(packedPhotoQueue.id, { packedPhotoUrl: base64, status: "closed" });
+        localStorage.removeItem("active_separation_order_id");
         setSeparatingOrder(null);
         setPackedPhotoQueue(null);
         await loadOrders();
