@@ -23,32 +23,36 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) { router.replace("/"); return; }
-      setUser(session.user);
-      setAuthChecked(true); // render imediato; profile carrega em background
-      const { data } = await supabase
-        .from("profiles")
-        .select("full_name, role, campo")
-        .eq("id", session.user.id)
-        .single();
-      if (data) setProfile(data);
-      setProfileLoaded(true);
-    }).catch(() => router.replace("/"));
+    let cancelled = false;
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "INITIAL_SESSION") return; // já tratado pelo getSession acima
-      if (!session) { router.replace("/"); return; }
+      if (cancelled) return;
+
+      if (!session) {
+        router.replace("/");
+        return;
+      }
+
       setUser(session.user);
-      const { data } = await supabase
-        .from("profiles")
-        .select("full_name, role, campo")
-        .eq("id", session.user.id)
-        .single();
-      if (data) setProfile(data);
+      setAuthChecked(true);
+
+      // Carrega perfil na sessão inicial e após login — TOKEN_REFRESHED não precisa recarregar
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        const { data } = await supabase
+          .from("profiles")
+          .select("full_name, role, campo")
+          .eq("id", session.user.id)
+          .single();
+        if (cancelled) return;
+        if (data) setProfile(data);
+        setProfileLoaded(true);
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [router]);
 
   useEffect(() => {
