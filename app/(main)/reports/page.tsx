@@ -14,6 +14,7 @@ import { Printer, Camera } from "lucide-react";
 import { format } from "date-fns";
 import { CAMPO_MAP } from "@/lib/campos";
 import type { CampoId } from "@/lib/campos";
+import { useUserRole } from "@/lib/user-context";
 
 interface ReportRow {
   order: Order;
@@ -21,6 +22,7 @@ interface ReportRow {
 }
 
 export default function ReportsPage() {
+  const { profileLoaded } = useUserRole();
   const [orders, setOrders] = useState<Order[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,7 +46,7 @@ export default function ReportsPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (!profileLoaded) return; load(); }, [load, profileLoaded]);
 
   const shipmentMap = useMemo(() => new Map(shipments.map(s => [s.id, s])), [shipments]);
 

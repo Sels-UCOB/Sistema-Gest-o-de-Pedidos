@@ -38,15 +38,20 @@ export default function OrdersPage() {
   const [rawItems, setRawItems] = useState("");
 
   const loadOrders = useCallback(async () => {
-    const data = await getOrders();
-    setOrders(data);
+    try {
+      const data = await getOrders();
+      setOrders(data);
+    } catch {
+      setOrders([]);
+    }
   }, []);
 
   useEffect(() => {
-    getProducts().then(setProducts).catch(console.error);
-    getInventory().then(setInventory).catch(console.error);
+    if (!profileLoaded) return;
+    getProducts().then(setProducts).catch(() => setProducts([]));
+    getInventory().then(setInventory).catch(() => setInventory([]));
     loadOrders();
-  }, [loadOrders]);
+  }, [loadOrders, profileLoaded]);
 
   useEffect(() => {
     const saved = localStorage.getItem('orderForm');

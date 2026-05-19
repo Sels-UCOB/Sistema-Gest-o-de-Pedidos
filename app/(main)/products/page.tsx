@@ -24,7 +24,7 @@ const CAMPO_TABS: Array<{ id: CampoId; label: string }> = [
 ];
 
 export default function ProductsPage() {
-  const { isAdmin, campo } = useUserRole();
+  const { isAdmin, campo, profileLoaded } = useUserRole();
   const [products, setProducts] = useState<Product[] | undefined>(undefined);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -47,8 +47,12 @@ export default function ProductsPage() {
   }, [isAdmin, campo]);
 
   const loadProducts = useCallback(async () => {
-    const data = await getProducts();
-    setProducts(data);
+    try {
+      const data = await getProducts();
+      setProducts(data);
+    } catch {
+      setProducts([]);
+    }
   }, []);
 
   const loadInventory = useCallback(async () => {
@@ -61,9 +65,10 @@ export default function ProductsPage() {
   }, []);
 
   useEffect(() => {
+    if (!profileLoaded) return;
     loadProducts();
     loadInventory();
-  }, [loadProducts, loadInventory]);
+  }, [loadProducts, loadInventory, profileLoaded]);
 
   const inventoryMap = useMemo(() => {
     const map = new Map<string, number>();

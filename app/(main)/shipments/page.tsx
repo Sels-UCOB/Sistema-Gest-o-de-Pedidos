@@ -13,27 +13,38 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Camera, Truck } from "lucide-react";
 import { format } from "date-fns";
+import { useUserRole } from "@/lib/user-context";
 
 export default function ShipmentsPage() {
+  const { profileLoaded } = useUserRole();
   const [activeTab, setActiveTab] = useState("create");
   const [pickupName, setPickupName] = useState("");
   const [allOrders, setAllOrders] = useState<Order[] | undefined>(undefined);
   const [shipments, setShipments] = useState<Shipment[] | undefined>(undefined);
 
   const loadOrders = useCallback(async () => {
-    const data = await getOrders();
-    setAllOrders(data);
+    try {
+      const data = await getOrders();
+      setAllOrders(data);
+    } catch {
+      setAllOrders([]);
+    }
   }, []);
 
   const loadShipments = useCallback(async () => {
-    const data = await getShipments();
-    setShipments(data);
+    try {
+      const data = await getShipments();
+      setShipments(data);
+    } catch {
+      setShipments([]);
+    }
   }, []);
 
   useEffect(() => {
+    if (!profileLoaded) return;
     loadOrders();
     loadShipments();
-  }, [loadOrders, loadShipments]);
+  }, [loadOrders, loadShipments, profileLoaded]);
 
   const closedOrders = allOrders?.filter(o => o.status === "closed") || [];
 
