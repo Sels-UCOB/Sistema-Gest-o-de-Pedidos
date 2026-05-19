@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Order, OrderItem, Product } from "@/lib/db";
-import { getProducts, getOrders, addOrder, updateOrder } from "@/lib/supabase-db";
+import { getProducts, getOrders, getOrderFull, addOrder, updateOrder, deductInventoryStock } from "@/lib/supabase-db";
+import { CAMPO_MAP, WAREHOUSES, WarehouseId } from "@/lib/campos";
 import { findBestMatch } from "@/lib/string-utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,15 +16,23 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Camera, Search, PlusCircle, ChevronRight, Package } from "lucide-react";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useUserRole } from "@/lib/user-context";
+
 
 export default function OrdersPage() {
+  const { displayName, isAdmin, campo, profileLoaded } = useUserRole();
+
+  const CAMPANHAS = useMemo(() => {
+    const all = Object.keys(CAMPO_MAP).sort();
+    if (isAdmin || !campo) return all;
+    return all.filter(c => CAMPO_MAP[c] === campo);
+  }, [isAdmin, campo]);
   const [activeTab, setActiveTab] = useState("create");
   const [products, setProducts] = useState<Product[] | undefined>(undefined);
   const [orders, setOrders] = useState<Order[] | undefined>(undefined);
   const [customerName, setCustomerName] = useState("");
   const [campaignCode, setCampaignCode] = useState("");
   const [destinationCity, setDestinationCity] = useState("");
-  const [responsible, setResponsible] = useState("");
   const [rawItems, setRawItems] = useState("");
 
   const loadOrders = useCallback(async () => {
@@ -36,53 +45,39 @@ export default function OrdersPage() {
     loadOrders();
   }, [loadOrders]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const saved = localStorage.getItem('orderForm');
     if (saved) {
       const f = JSON.parse(saved);
       setCustomerName(f.customerName || '');
       setCampaignCode(f.campaignCode || '');
       setDestinationCity(f.destinationCity || '');
-      setResponsible(f.responsible || '');
       setRawItems(f.rawItems || '');
     }
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     localStorage.setItem('orderForm', JSON.stringify({
-      customerName, campaignCode, destinationCity, responsible, rawItems
+      customerName, campaignCode, destinationCity, rawItems
     }));
-  }, [customerName, campaignCode, destinationCity, responsible, rawItems]);
+  }, [customerName, campaignCode, destinationCity, rawItems]);
 
   const [parsedItems, setParsedItems] = useState<OrderItem[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [separatingOrder, setSeparatingOrder] = useState<Order | null>(null);
+  const [loadingOrderId, setLoadingOrderId] = useState<string | null>(null);
   const [photoItemQueue, setPhotoItemQueue] = useState<OrderItem | null>(null);
+  const [photoItemIndex, setPhotoItemIndex] = useState<number | null>(null);
   const [packedPhotoQueue, setPackedPhotoQueue] = useState<Order | null>(null);
 
-  const RESPONSAVEIS = [
-    "Maycon Douglas",
-    "Victor Fialho",
-    "Juan Vazquez",
-    "Leticia Lobato",
-    "Outro",
-  ];
-  const CAMPANHAS = [
-    "ABC - 1976",
-    "ALM - 5847",
-    "ALM SA - 5387",
-    "APLAC - 2935",
-    "APLAC SA - 2976",
-    "AOM - 7485",
-    "AOM SA - 7101",
-    "ASM - 4261",
-    "ASM SA - 4289",
-    "IABC - 1677",
-  ];
+  const [warehouse, setWarehouse] = useState<WarehouseId | "">("");
+
+
+  const warehouseOptions = campaignCode
+    ? WAREHOUSES.filter(w => w.campo === CAMPO_MAP[campaignCode])
+    : [];
   const [errors, setErrors] = useState<{customerName?: string, destinationCity?: string}>({});
   const [suggestions, setSuggestions] = useState<{id: string, name: string}[]>([]);
-  const [customResponsible, setCustomResponsible] = useState("");
-  const [customResponsibleError, setCustomResponsibleError] = useState("");
   const [ambiguousItems, setAmbiguousItems] = useState<{idx: number, query: string, options: {id: string, name: string}[]}[]>([]);
   const [manualSearch, setManualSearch] = useState<{idx: number, query: string} | null>(null);
   const [manualSearchResults, setManualSearchResults] = useState<{id: string, name: string}[]>([]);
@@ -136,8 +131,12 @@ export default function OrdersPage() {
     if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
     setErrors({});
 
-    if (responsible === "Outro" && customResponsible.trim().length < 3) { alert("Digite o nome do responsável."); return; }
+    if (!warehouse) { alert("Selecione o depósito de origem."); return; }
     if (parsedItems.length === 0) { alert("Adicione pelo menos um item ao pedido."); return; }
+    if (ambiguousItems.length > 0) {
+      alert("Existem itens com múltiplas opções. Selecione o produto correto para cada um antes de confirmar.");
+      return;
+    }
     if (parsedItems.some(item => item.productId.startsWith('unknown-'))) {
       alert("Existem produtos não identificados. Revise os itens antes de confirmar.");
       setShowPreview(true);
@@ -148,15 +147,18 @@ export default function OrdersPage() {
         customerName,
         campaignCode,
         destinationCity,
-        responsible: responsible === "Outro" ? customResponsible.trim() : responsible,
+        responsible: displayName,
         status: "pending",
         items: parsedItems,
       });
-      setCustomResponsible("");
+      try { await deductInventoryStock(parsedItems, warehouse); } catch (e) {
+        console.error("Erro ao deduzir estoque:", e);
+        alert("Pedido criado, mas houve um erro ao deduzir o estoque. Verifique o catálogo manualmente.");
+      }
       setCustomerName("");
       setCampaignCode("");
+      setWarehouse("");
       setDestinationCity("");
-      setResponsible("");
       setRawItems("");
       setParsedItems([]);
       setShowPreview(false);
@@ -169,15 +171,28 @@ export default function OrdersPage() {
     }
   };
 
+  const openSeparationView = async (order: Order) => {
+    setLoadingOrderId(order.id);
+    try {
+      const full = await getOrderFull(order.id);
+      setSeparatingOrder(full);
+    } catch {
+      alert("Erro ao carregar o pedido. Tente novamente.");
+    } finally {
+      setLoadingOrderId(null);
+    }
+  };
+
   const toggleSeparation = async (order: Order, itemIndex: number) => {
     const item = order.items[itemIndex];
     if (!item.isSeparated) {
       setPhotoItemQueue({ ...item });
+      setPhotoItemIndex(itemIndex);
       setSeparatingOrder(order);
     } else {
-      const newItems = [...order.items];
-      newItems[itemIndex].isSeparated = false;
-      newItems[itemIndex].photoUrl = undefined;
+      const newItems = order.items.map((it, i) =>
+        i === itemIndex ? { ...it, isSeparated: false, photoUrl: undefined } : it
+      );
       await updateOrder(order.id, { items: newItems });
       setSeparatingOrder({ ...order, items: newItems });
     }
@@ -189,9 +204,9 @@ export default function OrdersPage() {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const base64 = ev.target?.result as string;
-      if (type === 'item' && photoItemQueue && separatingOrder) {
-        const newItems = separatingOrder.items.map(it =>
-          it.productId === photoItemQueue.productId
+      if (type === 'item' && photoItemQueue && separatingOrder && photoItemIndex !== null) {
+        const newItems = separatingOrder.items.map((it, i) =>
+          i === photoItemIndex
             ? { ...it, isSeparated: true, photoUrl: base64 }
             : it
         );
@@ -199,6 +214,7 @@ export default function OrdersPage() {
         await updateOrder(separatingOrder.id, { items: newItems, status: updatedStatus });
         setSeparatingOrder({ ...separatingOrder, items: newItems, status: updatedStatus });
         setPhotoItemQueue(null);
+        setPhotoItemIndex(null);
         if (newItems.every(i => i.isSeparated)) {
           const packedData = { ...separatingOrder, items: newItems, status: updatedStatus };
           setTimeout(() => { setPackedPhotoQueue(packedData); }, 300);
@@ -305,8 +321,8 @@ export default function OrdersPage() {
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button size="sm" variant="ghost" onClick={() => setSeparatingOrder(order)}>
-                            {order.status === 'pending' || order.status === 'separating' ? "Separar" : "Visualizar"}
+                          <Button size="sm" variant="ghost" disabled={loadingOrderId === order.id} onClick={() => openSeparationView(order)}>
+                            {loadingOrderId === order.id ? "..." : order.status === 'pending' || order.status === 'separating' ? "Separar" : "Visualizar"}
                             <ChevronRight className="ml-2 h-4 w-4" />
                           </Button>
                         </TableCell>
@@ -332,8 +348,8 @@ export default function OrdersPage() {
                         {statusMap[order.status].label}
                       </span>
                     </div>
-                    <Button size="sm" variant="ghost" onClick={() => setSeparatingOrder(order)}>
-                      {order.status === 'pending' || order.status === 'separating' ? "Separar" : "Ver"}
+                    <Button size="sm" variant="ghost" disabled={loadingOrderId === order.id} onClick={() => openSeparationView(order)}>
+                      {loadingOrderId === order.id ? "..." : order.status === 'pending' || order.status === 'separating' ? "Separar" : "Ver"}
                       <ChevronRight className="ml-1 h-4 w-4" />
                     </Button>
                   </div>
@@ -372,12 +388,23 @@ export default function OrdersPage() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Código da Campanha</label>
-                    <Select value={campaignCode} onValueChange={(value) => setCampaignCode(value || "")}>
+                    <Select value={campaignCode} onValueChange={(value) => { setCampaignCode(value || ""); setWarehouse(""); }}>
                       <SelectTrigger id="input-campanha" className="w-full">
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
                       <SelectContent>
                         {CAMPANHAS.map(c => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Depósito de Origem</label>
+                    <Select value={warehouse} onValueChange={(value) => setWarehouse(value as WarehouseId)} disabled={!campaignCode}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={campaignCode ? "Selecione o depósito..." : "Selecione a campanha primeiro"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {warehouseOptions.map(w => (<SelectItem key={w.id} value={w.id}>{w.label}</SelectItem>))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -399,26 +426,9 @@ export default function OrdersPage() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Responsável</label>
-                    <Select value={responsible} onValueChange={(value) => value !== null && setResponsible(value)}>
-                      <SelectTrigger id="input-responsavel" className="w-full">
-                        <SelectValue placeholder="Selecione..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {RESPONSAVEIS.map(r => (<SelectItem key={r} value={r}>{r}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
-                    {responsible === "Outro" && (
-                      <div>
-                        <Input
-                          placeholder="Digite o nome do responsável"
-                          value={customResponsible}
-                          onChange={e => { setCustomResponsible(e.target.value); setCustomResponsibleError(""); }}
-                          onBlur={e => { if (e.target.value.trim().length < 3 || /\d/.test(e.target.value)) setCustomResponsibleError("Mínimo 3 letras, sem números."); }}
-                          className="mt-2"
-                        />
-                        {customResponsibleError && <p className="text-red-500 text-xs mt-1">{customResponsibleError}</p>}
-                      </div>
-                    )}
+                    <div className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-slate-300 opacity-60 cursor-not-allowed select-none items-center">
+                      {displayName || "—"}
+                    </div>
                   </div>
                 </div>
 
@@ -497,7 +507,7 @@ export default function OrdersPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+      <Dialog open={showPreview} onOpenChange={(open) => { setShowPreview(open); if (!open) { setManualSearch(null); setManualSearchResults([]); } }}>
         <DialogContent className="max-w-md border-slate-800 bg-slate-900">
           <DialogHeader>
             <DialogTitle className="text-white">Validar Itens do Pedido</DialogTitle>
@@ -589,7 +599,7 @@ export default function OrdersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPreview(false)}>Cancelar</Button>
-            <Button onClick={handleCreateOrder}>
+            <Button onClick={handleCreateOrder} disabled={!profileLoaded}>
               <PlusCircle className="mr-2 h-4 w-4" /> Confirmar Pedido
             </Button>
           </DialogFooter>

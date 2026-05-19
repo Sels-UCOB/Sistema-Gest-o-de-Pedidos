@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import type { Product, Order, OrderItem, Shipment } from "./db";
+import type { CampoId } from "./campos";
 
 // ─── Products ────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,8 @@ export async function deleteProduct(id: string): Promise<void> {
 }
 
 export async function clearProducts(): Promise<void> {
+  const { error: invError } = await supabase.from("inventory").delete().neq("product_id", "");
+  if (invError) throw invError;
   const { error } = await supabase.from("products").delete().neq("id", "");
   if (error) throw error;
 }
@@ -51,13 +54,34 @@ function mapOrder(row: Record<string, unknown>): Order {
   };
 }
 
+function mapOrderSlim(row: Record<string, unknown>): Order {
+  return {
+    id: row.id as string,
+    customerName: row.customer_name as string,
+    campaignCode: (row.campaign_code as string) ?? "",
+    destinationCity: row.destination_city as string,
+    responsible: row.responsible as string,
+    status: row.status as Order["status"],
+    items: ((row.items as OrderItem[]) ?? []).map(it => ({ ...it, photoUrl: undefined })),
+    createdAt: row.created_at as number,
+    shipmentId: (row.shipment_id as string) ?? undefined,
+  };
+}
+
 export async function getOrders(): Promise<Order[]> {
+  const { data, error } = await supabase.rpc("get_orders_slim");
+  if (error) throw error;
+  return (data ?? []).map(mapOrderSlim);
+}
+
+export async function getOrderFull(id: string): Promise<Order> {
   const { data, error } = await supabase
     .from("orders")
     .select("*")
-    .order("created_at", { ascending: false });
+    .eq("id", id)
+    .single();
   if (error) throw error;
-  return (data ?? []).map(mapOrder);
+  return mapOrder(data);
 }
 
 export async function addOrder(order: Omit<Order, "id" | "createdAt">): Promise<Order> {
@@ -149,5 +173,89 @@ export async function updateShipment(id: string, updates: Partial<Shipment>): Pr
   if (updates.status !== undefined) row.status = updates.status;
 
   const { error } = await supabase.from("shipments").update(row).eq("id", id);
+  if (error) throw error;
+}
+
+export async function appendReceiptPhoto(id: string, photoUrl: string): Promise<void> {
+  const { data, error: fetchError } = await supabase
+    .from("shipments")
+    .select("receipt_photo_urls")
+    .eq("id", id)
+    .single();
+  if (fetchError) throw fetchError;
+  const existing = (data?.receipt_photo_urls as string[]) ?? [];
+  const { error } = await supabase
+    .from("shipments")
+    .update({ receipt_photo_urls: [...existing, photoUrl], status: "shipped" })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+export interface InventoryRow {
+  product_id: string;
+  warehouse_id: string;
+  quantity: number;
+}
+
+export async function getInventory(): Promise<InventoryRow[]> {
+  const { data, error } = await supabase
+    .from("inventory")
+    .select("product_id, warehouse_id, quantity");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addInventoryStock(productId: string, warehouseId: string, quantity: number): Promise<void> {
+  const { error } = await supabase.rpc("add_inventory", {
+    p_product_id: productId,
+    p_warehouse_id: warehouseId,
+    p_quantity: quantity,
+  });
+  if (error) throw error;
+}
+
+export async function bulkSetInventory(rows: InventoryRow[]): Promise<void> {
+  const { error } = await supabase.rpc("bulk_set_inventory", { rows });
+  if (error) throw error;
+}
+
+export async function deductInventoryStock(items: OrderItem[], warehouseId: string): Promise<void> {
+  for (const item of items) {
+    if (item.productId.startsWith("unknown-")) continue;
+    const { error } = await supabase.rpc("deduct_inventory", {
+      p_product_id: item.productId,
+      p_warehouse_id: warehouseId,
+      p_quantity: item.quantity,
+    });
+    if (error) throw error;
+  }
+}
+
+// ─── Profiles (admin) ────────────────────────────────────────────────────────
+
+export interface ProfileRow {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  role: "admin" | "operator";
+  campo: CampoId | null;
+}
+
+export async function getProfiles(): Promise<ProfileRow[]> {
+  const { data, error } = await supabase.rpc("get_profiles_with_email");
+  if (error) throw error;
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    id: row.id as string,
+    full_name: row.full_name as string | null,
+    email: row.email as string | null,
+    role: (row.role ?? "operator") as "admin" | "operator",
+    campo: (row.campo ?? null) as CampoId | null,
+  }));
+}
+
+export async function updateProfile(id: string, updates: Partial<Pick<ProfileRow, "role" | "campo">>): Promise<void> {
+  const { error } = await supabase.from("profiles").update(updates).eq("id", id);
   if (error) throw error;
 }

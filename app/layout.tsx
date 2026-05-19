@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Gestão Pro",
-  description: "Sistema de Gestão de Pedidos",
+  title: "Sels UCOB",
+  description: "Sistema de Gestão de Pedidos — Sels UCOB",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

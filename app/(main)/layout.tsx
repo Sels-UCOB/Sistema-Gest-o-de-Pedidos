@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Package, ShoppingCart, Truck, LogOut, Shield } from "lucide-react";
+import { Package, ShoppingCart, Truck, LogOut, Shield, Users, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { UserContext } from "@/lib/user-context";
+import type { CampoId } from "@/lib/campos";
 import type { User } from "@supabase/supabase-js";
 
-type Profile = { full_name: string | null; role: "admin" | "operator" };
+type Profile = { full_name: string | null; role: "admin" | "operator"; campo: CampoId | null };
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -16,6 +18,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -23,18 +26,26 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace("/"); return; }
       setUser(session.user);
+      setAuthChecked(true); // render imediato; profile carrega em background
       const { data } = await supabase
         .from("profiles")
-        .select("full_name, role")
+        .select("full_name, role, campo")
         .eq("id", session.user.id)
         .single();
-      setProfile(data);
-      setAuthChecked(true);
-    });
+      if (data) setProfile(data);
+      setProfileLoaded(true);
+    }).catch(() => router.replace("/"));
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "INITIAL_SESSION") return; // já tratado pelo getSession acima
       if (!session) { router.replace("/"); return; }
       setUser(session.user);
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name, role, campo")
+        .eq("id", session.user.id)
+        .single();
+      if (data) setProfile(data);
     });
 
     return () => subscription.unsubscribe();
@@ -58,6 +69,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const displayName = profile?.full_name || user?.email || "";
   const userInitial = displayName[0]?.toUpperCase() ?? "";
   const isAdmin = profile?.role === "admin";
+  const campo = (profile?.campo as CampoId) ?? null;
 
   if (!authChecked) {
     return (
@@ -68,9 +80,11 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }
 
   const navItems = [
-    { to: "/products", icon: Package, label: "Catálogo" },
     { to: "/orders", icon: ShoppingCart, label: "Pedidos" },
     { to: "/shipments", icon: Truck, label: "Envios" },
+    { to: "/reports", icon: FileText, label: "Relatórios" },
+    { to: "/products", icon: Package, label: "Catálogo" },
+    ...(isAdmin ? [{ to: "/admin", icon: Users, label: "Usuários" }] : []),
   ];
 
   return (
@@ -155,7 +169,9 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
         <div className="flex-1 overflow-auto p-4 pb-24 md:pb-8 md:p-6 lg:p-8">
           <div className="mx-auto h-full max-w-5xl w-full">
-            {children}
+            <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded }}>
+              {children}
+            </UserContext.Provider>
           </div>
         </div>
       </main>

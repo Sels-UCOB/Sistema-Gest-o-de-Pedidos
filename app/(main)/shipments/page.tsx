@@ -2,17 +2,16 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Order, Shipment } from "@/lib/db";
-import { getOrders, getShipments, addShipment, updateShipment, updateOrder } from "@/lib/supabase-db";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { getOrders, getShipments, addShipment, updateOrder, appendReceiptPhoto } from "@/lib/supabase-db";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Camera, Truck, Printer } from "lucide-react";
+import { Camera, Truck } from "lucide-react";
 import { format } from "date-fns";
 
 export default function ShipmentsPage() {
@@ -45,16 +44,13 @@ export default function ShipmentsPage() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
 
   const [activeShipmentId, setActiveShipmentId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const [reportStartDate, setReportStartDate] = useState("");
-  const [reportEndDate, setReportEndDate] = useState("");
 
   const handleCreateShipment = async () => {
-    if (selectedOrderIds.length === 0) {
-      alert("Selecione pelo menos um pedido!");
-      return;
-    }
-
+    if (selectedOrderIds.length === 0) { alert("Selecione pelo menos um pedido!"); return; }
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const newShipment = await addShipment({
         type: shippingType,
@@ -67,9 +63,9 @@ export default function ShipmentsPage() {
         receiptPhotoUrls: [],
       });
 
-      for (const oid of selectedOrderIds) {
-        await updateOrder(oid, { shipmentId: newShipment.id, status: "shipped" });
-      }
+      await Promise.all(
+        selectedOrderIds.map(oid => updateOrder(oid, { shipmentId: newShipment.id, status: "shipped" }))
+      );
 
       setShippingType("transportadora");
       setCarrierName("");
@@ -83,6 +79,8 @@ export default function ShipmentsPage() {
     } catch (err) {
       console.error(err);
       alert("Erro ao criar envio.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -93,140 +91,18 @@ export default function ShipmentsPage() {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const base64 = ev.target?.result as string;
-      const shipment = shipments?.find(s => s.id === activeShipmentId);
-      if (shipment) {
-        const newUrls = [...(shipment.receiptPhotoUrls || []), base64];
-        await updateShipment(activeShipmentId, {
-          receiptPhotoUrls: newUrls,
-          status: "shipped",
-        });
+      try {
+        await appendReceiptPhoto(activeShipmentId, base64);
         await loadShipments();
+      } catch (err) {
+        console.error(err);
+        alert("Erro ao salvar comprovante.");
       }
       setActiveShipmentId(null);
     };
     reader.readAsDataURL(file);
   };
 
-  const handlePrintReport = () => {
-    const filtered = shipments?.filter(s => {
-      if (reportStartDate && new Date(s.shippingDate) < new Date(reportStartDate)) return false;
-      if (reportEndDate && new Date(s.shippingDate) > new Date(reportEndDate)) return false;
-      return true;
-    }) || [];
-
-    const win = window.open('', '_blank');
-    if (!win) return;
-
-    win.document.write(`<!DOCTYPE html><html><head>
-      <meta charset="UTF-8"/>
-      <title>Relatório de Envios — Sels UCOB</title>
-      <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 32px; background: white; }
-        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; border-bottom: 3px solid #1e293b; padding-bottom: 12px; }
-        .header-left h1 { font-size: 22px; font-weight: bold; color: #1e293b; }
-        .header-left p { font-size: 11px; color: #64748b; margin-top: 2px; }
-        .header-right { text-align: right; font-size: 11px; color: #64748b; }
-        .header-right strong { font-size: 16px; color: #1e293b; display: block; }
-        .envio { border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 32px; page-break-inside: avoid; overflow: hidden; }
-        .envio-header { background: #1e293b; color: white; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; }
-        .envio-header span { font-size: 13px; font-weight: bold; }
-        .badge { padding: 2px 10px; border-radius: 20px; font-size: 11px; color: white; }
-        .secao { padding: 12px 16px; border-bottom: 1px solid #e2e8f0; }
-        .secao-titulo { font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; margin-bottom: 8px; }
-        .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-        .campo { border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 10px; }
-        .campo label { display: block; font-size: 9px; text-transform: uppercase; color: #94a3b8; font-weight: bold; margin-bottom: 2px; }
-        .campo span { font-size: 12px; color: #1e293b; font-weight: 500; }
-        .pedido { margin: 8px 0; border: 1px solid #e2e8f0; border-radius: 4px; overflow: hidden; }
-        .pedido-header { background: #f8fafc; padding: 8px 12px; display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; }
-        .pedido-header strong { font-size: 12px; color: #1e293b; }
-        .pedido-header span { font-size: 11px; color: #64748b; }
-        table.itens { width: calc(100% - 24px); border-collapse: collapse; margin: 10px 12px; }
-        table.itens th { background: #f1f5f9; text-align: left; font-size: 10px; text-transform: uppercase; color: #64748b; padding: 4px 8px; border: 1px solid #e2e8f0; }
-        table.itens td { padding: 4px 8px; border: 1px solid #e2e8f0; font-size: 11px; }
-        .comprovantes { padding: 12px 16px; }
-        .comprovantes-titulo { font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; margin-bottom: 8px; }
-        .comprovantes-grid { display: flex; gap: 8px; flex-wrap: wrap; }
-        .comprovantes-grid img { max-width: 150px; max-height: 120px; border: 1px solid #e2e8f0; border-radius: 4px; object-fit: cover; }
-        .rodape { text-align: center; font-size: 10px; color: #94a3b8; margin-top: 24px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
-        @media print { body { padding: 16px; } .envio { page-break-inside: avoid; } }
-      </style>
-    </head><body>
-    <div style="margin-bottom:24px;">
-      <a href="${window.location.origin}" style="font-family:Arial,sans-serif;font-size:13px;color:#4f46e5;text-decoration:none;font-weight:bold;">
-        ← Voltar ao Sistema
-      </a>
-    </div>
-      <div class="header">
-        <div class="header-left">
-          <h1>Sels UCOB</h1>
-          <p>Relatório de Envios e Pedidos</p>
-          <p>Gerado em: ${format(new Date(), 'dd/MM/yyyy HH:mm')}</p>
-        </div>
-        <div class="header-right">
-          <strong>${filtered.length}</strong>
-          envio(s) neste relatório
-        </div>
-      </div>
-      ${filtered.map((shipment, si) => {
-        const orders = shipment.orderIds
-          .map(oid => allOrders?.find(o => o.id === oid))
-          .filter(Boolean) as Order[];
-        return `
-        <div class="envio">
-          <div class="envio-header">
-            <span>Envio ${si + 1} — ${format(shipment.shippingDate, 'dd/MM/yyyy')}</span>
-            <span class="badge" style="background:${shipment.type === 'presencial' ? '#10b981' : '#3b82f6'};">
-              ${shipment.type === 'transportadora' ? 'Transportadora' : 'Retirada Presencial'}
-            </span>
-          </div>
-          <div class="secao">
-            <div class="secao-titulo">Informações de Transporte</div>
-            <div class="grid3">
-              <div class="campo"><label>Transportadora</label><span>${shipment.carrierName || '—'}</span></div>
-              <div class="campo"><label>Telefone</label><span>${shipment.carrierPhone || '—'}</span></div>
-            </div>
-          </div>
-          <div class="secao">
-            <div class="secao-titulo">Pedidos (${orders.length})</div>
-            ${orders.map(order => `
-              <div class="pedido">
-                <div class="pedido-header">
-                  <strong>${order.customerName} — ${order.destinationCity}</strong>
-                  <span>Campanha: ${order.campaignCode} | Resp: ${order.responsible}</span>
-                </div>
-                <table class="itens">
-                  <thead><tr><th>Qtd</th><th>Produto</th></tr></thead>
-                  <tbody>
-                    ${order.items.map(it => `
-                      <tr>
-                        <td style="width:40px;text-align:center">${it.quantity}x</td>
-                        <td>${it.name}</td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              </div>
-            `).join('')}
-          </div>
-          ${shipment.receiptPhotoUrls?.length ? `
-            <div class="comprovantes">
-              <div class="comprovantes-titulo">Comprovantes de Envio</div>
-              <div class="comprovantes-grid">
-                ${shipment.receiptPhotoUrls.map(url => `<img src="${url}" />`).join('')}
-              </div>
-            </div>
-          ` : ''}
-        </div>`;
-      }).join('')}
-      <div class="rodape">Sels UCOB — Sistema de Gestão de Pedidos</div>
-    </body></html>`);
-
-    win.document.close();
-    win.focus();
-    setTimeout(() => { win.print(); win.close(); }, 500);
-  };
 
   return (
     <div className="space-y-6">
@@ -238,10 +114,9 @@ export default function ShipmentsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full print:hidden">
-        <TabsList className="grid w-full grid-cols-3 md:w-[600px]">
+        <TabsList className="grid w-full grid-cols-2 md:w-[400px]">
           <TabsTrigger value="create">Novo</TabsTrigger>
           <TabsTrigger value="list">Lista</TabsTrigger>
-          <TabsTrigger value="reports">Relatórios</TabsTrigger>
         </TabsList>
 
         <TabsContent value="list" className="mt-6">
@@ -364,8 +239,8 @@ export default function ShipmentsPage() {
                     )}
                   </div>
 
-                  <Button className="w-full" onClick={handleCreateShipment}>
-                    <Truck className="mr-2 h-4 w-4" /> Finalizar Envio
+                  <Button className="w-full" onClick={handleCreateShipment} disabled={submitting}>
+                    <Truck className="mr-2 h-4 w-4" /> {submitting ? "Salvando..." : "Finalizar Envio"}
                   </Button>
                 </div>
 
@@ -398,36 +273,11 @@ export default function ShipmentsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="reports" className="mt-6 space-y-6">
-          <Card>
-            <CardHeader className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-              <div>
-                <CardTitle>Relatórios e Exportação</CardTitle>
-                <CardDescription>Visualize o espelho dos envios ou pedidos</CardDescription>
-              </div>
-              <Button onClick={handlePrintReport} variant="secondary">
-                <Printer className="mr-2 h-4 w-4" /> Imprimir Relatório
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-4 mb-6">
-                <div className="space-y-2 flex-1">
-                  <Label>Data Inicial (Opcional)</Label>
-                  <Input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)} />
-                </div>
-                <div className="space-y-2 flex-1">
-                  <Label>Data Final (Opcional)</Label>
-                  <Input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
 
       {activeShipmentId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="relative w-full max-w-sm mx-4 rounded-xl p-4 bg-slate-900 border border-slate-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setActiveShipmentId(null)}>
+          <div className="relative w-full max-w-sm mx-4 rounded-xl p-4 bg-slate-900 border border-slate-800" onClick={e => e.stopPropagation()}>
             <h2 className="font-semibold text-base mb-1 text-white">Anexar Comprovantes</h2>
             <p className="text-sm text-slate-400 mb-4">Tire fotos dos comprovantes fiscais ou recibos da transportadora</p>
             <div className="flex flex-col gap-4">
@@ -448,8 +298,6 @@ export default function ShipmentsPage() {
         </div>
       )}
 
-      {/* Unused dialog import suppressor */}
-      <Dialog open={false} onOpenChange={() => {}}><DialogContent><DialogHeader><DialogTitle /><DialogDescription /></DialogHeader></DialogContent></Dialog>
     </div>
   );
 }
