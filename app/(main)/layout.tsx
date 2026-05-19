@@ -188,34 +188,34 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-4 pb-36 md:pb-8 md:p-6 lg:p-8">
+        <div className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">
           <div className="mx-auto min-h-full max-w-5xl w-full">
             <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded, refreshTick }}>
               {children}
             </UserContext.Provider>
           </div>
         </div>
-      </main>
 
-      {/* Bottom nav — mobile only */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex md:hidden border-t border-slate-800 bg-slate-900/95 backdrop-blur-md" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        {navItems.map((item) => {
-          const isActive = pathname.startsWith(item.to);
-          return (
-            <Link
-              key={item.to}
-              href={item.to}
-              className={cn(
-                "flex-1 flex flex-col items-center gap-1 py-3 transition-colors",
-                isActive ? "text-white" : "text-slate-500"
-              )}
-            >
-              <item.icon className={cn("w-5 h-5", isActive && "text-indigo-400")} />
-              <span className="text-[10px] font-medium">{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+        {/* Bottom nav — mobile only, flex child so it never overlaps content */}
+        <nav className="shrink-0 flex md:hidden border-t border-slate-800 bg-slate-900/95 backdrop-blur-md" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          {navItems.map((item) => {
+            const isActive = pathname.startsWith(item.to);
+            return (
+              <Link
+                key={item.to}
+                href={item.to}
+                className={cn(
+                  "flex-1 flex flex-col items-center gap-1 py-3 transition-colors",
+                  isActive ? "text-white" : "text-slate-500"
+                )}
+              >
+                <item.icon className={cn("w-5 h-5", isActive && "text-indigo-400")} />
+                <span className="text-[10px] font-medium">{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      </main>
     </div>
   );
 }
