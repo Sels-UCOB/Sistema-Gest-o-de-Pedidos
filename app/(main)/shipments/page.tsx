@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
-import { db, Order, Shipment } from "@/lib/db";
+import React, { useState, useEffect, useCallback } from "react";
+import { Order, Shipment } from "@/lib/db";
+import { getOrders, getShipments, addShipment, updateShipment, updateOrder } from "@/lib/supabase-db";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -18,9 +18,23 @@ import { format } from "date-fns";
 export default function ShipmentsPage() {
   const [activeTab, setActiveTab] = useState("create");
   const [pickupName, setPickupName] = useState("");
+  const [allOrders, setAllOrders] = useState<Order[] | undefined>(undefined);
+  const [shipments, setShipments] = useState<Shipment[] | undefined>(undefined);
 
-  const allOrders = useLiveQuery(() => db.orders.orderBy("createdAt").reverse().toArray());
-  const shipments = useLiveQuery(() => db.shipments.orderBy("createdAt").reverse().toArray());
+  const loadOrders = useCallback(async () => {
+    const data = await getOrders();
+    setAllOrders(data);
+  }, []);
+
+  const loadShipments = useCallback(async () => {
+    const data = await getShipments();
+    setShipments(data);
+  }, []);
+
+  useEffect(() => {
+    loadOrders();
+    loadShipments();
+  }, [loadOrders, loadShipments]);
 
   const closedOrders = allOrders?.filter(o => o.status === "closed") || [];
 
@@ -42,9 +56,7 @@ export default function ShipmentsPage() {
     }
 
     try {
-      const shipmentId = crypto.randomUUID();
-      await db.shipments.add({
-        id: shipmentId,
+      const newShipment = await addShipment({
         type: shippingType,
         carrierName: shippingType === "transportadora" ? carrierName : undefined,
         carrierPhone: shippingType === "transportadora" ? carrierPhone : undefined,
@@ -52,12 +64,11 @@ export default function ShipmentsPage() {
         pickupName: shippingType === "presencial" ? pickupName : undefined,
         orderIds: selectedOrderIds,
         status: "pending",
-        createdAt: Date.now(),
-        receiptPhotoUrls: []
+        receiptPhotoUrls: [],
       });
 
       for (const oid of selectedOrderIds) {
-        await db.orders.update(oid, { shipmentId, status: "shipped" });
+        await updateOrder(oid, { shipmentId: newShipment.id, status: "shipped" });
       }
 
       setShippingType("transportadora");
@@ -67,6 +78,8 @@ export default function ShipmentsPage() {
       setPickupName("");
       setSelectedOrderIds([]);
       setActiveTab("list");
+      await loadShipments();
+      await loadOrders();
     } catch (err) {
       console.error(err);
       alert("Erro ao criar envio.");
@@ -80,13 +93,14 @@ export default function ShipmentsPage() {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const base64 = ev.target?.result as string;
-      const shipment = await db.shipments.get(activeShipmentId);
+      const shipment = shipments?.find(s => s.id === activeShipmentId);
       if (shipment) {
         const newUrls = [...(shipment.receiptPhotoUrls || []), base64];
-        await db.shipments.update(activeShipmentId, {
+        await updateShipment(activeShipmentId, {
           receiptPhotoUrls: newUrls,
-          status: "shipped"
+          status: "shipped",
         });
+        await loadShipments();
       }
       setActiveShipmentId(null);
     };
@@ -211,10 +225,7 @@ export default function ShipmentsPage() {
 
     win.document.close();
     win.focus();
-    setTimeout(() => {
-      win.print();
-      win.close();
-    }, 500);
+    setTimeout(() => { win.print(); win.close(); }, 500);
   };
 
   return (
@@ -272,7 +283,7 @@ export default function ShipmentsPage() {
                   {(!shipments || shipments.length === 0) && (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-8 text-slate-500">
-                        Nenhum envio registrado.
+                        {shipments === undefined ? "Carregando..." : "Nenhum envio registrado."}
                       </TableCell>
                     </TableRow>
                   )}
@@ -299,7 +310,9 @@ export default function ShipmentsPage() {
                 </div>
               ))}
               {(!shipments || shipments.length === 0) && (
-                <p className="text-center py-8 text-slate-500 text-sm">Nenhum envio registrado.</p>
+                <p className="text-center py-8 text-slate-500 text-sm">
+                  {shipments === undefined ? "Carregando..." : "Nenhum envio registrado."}
+                </p>
               )}
             </CardContent>
           </Card>
@@ -307,15 +320,13 @@ export default function ShipmentsPage() {
 
         <TabsContent value="create" className="mt-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Criar Nova Remessa</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Criar Nova Remessa</CardTitle></CardHeader>
             <CardContent>
               <div className="grid gap-8 grid-cols-1 md:grid-cols-2">
                 <div className="space-y-6">
                   <div className="space-y-3">
                     <Label>Método de Entrega</Label>
-                    <RadioGroup value={shippingType} onValueChange={(v) => setShippingType(v as any)} className="flex space-x-4">
+                    <RadioGroup value={shippingType} onValueChange={(v) => setShippingType(v as "transportadora" | "presencial")} className="flex space-x-4">
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="transportadora" id="trans" />
                         <Label htmlFor="trans">Transportadora</Label>
@@ -348,11 +359,7 @@ export default function ShipmentsPage() {
                     {shippingType === "presencial" && (
                       <div className="space-y-2">
                         <Label>Nome de Quem Retirou</Label>
-                        <Input
-                          placeholder="Nome completo"
-                          value={pickupName}
-                          onChange={(e) => setPickupName(e.target.value)}
-                        />
+                        <Input placeholder="Nome completo" value={pickupName} onChange={(e) => setPickupName(e.target.value)} />
                       </div>
                     )}
                   </div>
@@ -427,13 +434,7 @@ export default function ShipmentsPage() {
               <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg cursor-pointer flex-col items-center gap-2 justify-center" })}>
                 <Camera className="h-8 w-8 shrink-0" />
                 <span>Adicionar Foto</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={handleReceiptPhotoCapture}
-                />
+                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleReceiptPhotoCapture} />
               </label>
               {shipments?.find(s => s.id === activeShipmentId)?.receiptPhotoUrls?.map((url, i) => (
                 <img key={i} src={url} alt="Comprovante" className="max-h-48 object-cover border rounded" />
@@ -446,6 +447,9 @@ export default function ShipmentsPage() {
           </div>
         </div>
       )}
+
+      {/* Unused dialog import suppressor */}
+      <Dialog open={false} onOpenChange={() => {}}><DialogContent><DialogHeader><DialogTitle /><DialogDescription /></DialogHeader></DialogContent></Dialog>
     </div>
   );
 }

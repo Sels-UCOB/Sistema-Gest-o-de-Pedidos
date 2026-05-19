@@ -1,5 +1,3 @@
-import Dexie, { type EntityTable } from "dexie";
-
 export interface Product {
   id: string;
   name: string;
@@ -38,15 +36,3 @@ export interface Shipment {
   receiptPhotoUrls?: string[];
   createdAt: number;
 }
-
-export const db = new Dexie("OrderManagementDB") as Dexie & {
-  products: EntityTable<Product, "id">;
-  orders: EntityTable<Order, "id">;
-  shipments: EntityTable<Shipment, "id">;
-};
-
-db.version(1).stores({
-  products: "id, name",
-  orders: "id, customerName, status, createdAt, shipmentId",
-  shipments: "id, type, status, createdAt",
-});

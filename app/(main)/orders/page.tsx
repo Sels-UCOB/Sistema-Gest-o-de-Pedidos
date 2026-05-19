@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
-import { db, Order, OrderItem } from "@/lib/db";
+import React, { useState, useEffect, useCallback } from "react";
+import { Order, OrderItem, Product } from "@/lib/db";
+import { getProducts, getOrders, addOrder, updateOrder } from "@/lib/supabase-db";
 import { findBestMatch } from "@/lib/string-utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,13 +18,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 export default function OrdersPage() {
   const [activeTab, setActiveTab] = useState("create");
-  const products = useLiveQuery(() => db.products.toArray());
-  const orders = useLiveQuery(() => db.orders.orderBy("createdAt").reverse().toArray());
+  const [products, setProducts] = useState<Product[] | undefined>(undefined);
+  const [orders, setOrders] = useState<Order[] | undefined>(undefined);
   const [customerName, setCustomerName] = useState("");
   const [campaignCode, setCampaignCode] = useState("");
   const [destinationCity, setDestinationCity] = useState("");
   const [responsible, setResponsible] = useState("");
   const [rawItems, setRawItems] = useState("");
+
+  const loadOrders = useCallback(async () => {
+    const data = await getOrders();
+    setOrders(data);
+  }, []);
+
+  useEffect(() => {
+    getProducts().then(setProducts).catch(console.error);
+    loadOrders();
+  }, [loadOrders]);
 
   React.useEffect(() => {
     const saved = localStorage.getItem('orderForm');
@@ -121,40 +131,26 @@ export default function OrdersPage() {
     const nomeValido = (val: string) => val.trim().length >= 3 && /^[a-zA-ZÀ-ÿ\s]+$/.test(val.trim());
     const newErrors: {customerName?: string, destinationCity?: string} = {};
 
-    if (!nomeValido(customerName)) {
-      newErrors.customerName = "Mínimo 3 letras, sem números.";
-    }
-    if (!nomeValido(destinationCity)) {
-      newErrors.destinationCity = "Mínimo 3 letras, sem números.";
-    }
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
-    }
+    if (!nomeValido(customerName)) newErrors.customerName = "Mínimo 3 letras, sem números.";
+    if (!nomeValido(destinationCity)) newErrors.destinationCity = "Mínimo 3 letras, sem números.";
+    if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
     setErrors({});
-    if (responsible === "Outro" && customResponsible.trim().length < 3) {
-      alert("Digite o nome do responsável.");
-      return;
-    }
-    if (parsedItems.length === 0) {
-      alert("Adicione pelo menos um item ao pedido.");
-      return;
-    }
+
+    if (responsible === "Outro" && customResponsible.trim().length < 3) { alert("Digite o nome do responsável."); return; }
+    if (parsedItems.length === 0) { alert("Adicione pelo menos um item ao pedido."); return; }
     if (parsedItems.some(item => item.productId.startsWith('unknown-'))) {
       alert("Existem produtos não identificados. Revise os itens antes de confirmar.");
       setShowPreview(true);
       return;
     }
     try {
-      await db.orders.add({
-        id: crypto.randomUUID(),
+      await addOrder({
         customerName,
         campaignCode,
         destinationCity,
         responsible: responsible === "Outro" ? customResponsible.trim() : responsible,
         status: "pending",
         items: parsedItems,
-        createdAt: Date.now()
       });
       setCustomResponsible("");
       setCustomerName("");
@@ -166,6 +162,7 @@ export default function OrdersPage() {
       setShowPreview(false);
       setActiveTab("list");
       localStorage.removeItem('orderForm');
+      await loadOrders();
     } catch (err) {
       console.error(err);
       alert("Erro ao criar pedido.");
@@ -181,7 +178,7 @@ export default function OrdersPage() {
       const newItems = [...order.items];
       newItems[itemIndex].isSeparated = false;
       newItems[itemIndex].photoUrl = undefined;
-      await db.orders.update(order.id, { items: newItems });
+      await updateOrder(order.id, { items: newItems });
       setSeparatingOrder({ ...order, items: newItems });
     }
   };
@@ -199,32 +196,28 @@ export default function OrdersPage() {
             : it
         );
         const updatedStatus = separatingOrder.status === 'pending' ? 'separating' : separatingOrder.status;
-        await db.orders.update(separatingOrder.id, { items: newItems, status: updatedStatus });
+        await updateOrder(separatingOrder.id, { items: newItems, status: updatedStatus });
         setSeparatingOrder({ ...separatingOrder, items: newItems, status: updatedStatus });
         setPhotoItemQueue(null);
         if (newItems.every(i => i.isSeparated)) {
           const packedData = { ...separatingOrder, items: newItems, status: updatedStatus };
-          setTimeout(() => {
-            setPackedPhotoQueue(packedData);
-          }, 300);
+          setTimeout(() => { setPackedPhotoQueue(packedData); }, 300);
         }
       } else if (type === 'packed' && packedPhotoQueue) {
-        await db.orders.update(packedPhotoQueue.id, {
-          packedPhotoUrl: base64,
-          status: "closed"
-        });
+        await updateOrder(packedPhotoQueue.id, { packedPhotoUrl: base64, status: "closed" });
         setSeparatingOrder(null);
         setPackedPhotoQueue(null);
+        await loadOrders();
       }
     };
     reader.readAsDataURL(file);
   };
 
   const statusMap = {
-    pending: { label: "Pendente", color: "bg-yellow-100 text-yellow-800" },
-    separating: { label: "Separando", color: "bg-blue-100 text-blue-800" },
-    closed: { label: "Fechado", color: "bg-green-100 text-green-800" },
-    shipped: { label: "Enviado", color: "bg-purple-100 text-purple-800" },
+    pending: { label: "Pendente" },
+    separating: { label: "Separando" },
+    closed: { label: "Fechado" },
+    shipped: { label: "Enviado" },
   };
 
   return (
@@ -252,9 +245,7 @@ export default function OrdersPage() {
                     Campanha: {separatingOrder.campaignCode} | Destino: {separatingOrder.destinationCity}
                   </CardDescription>
                 </div>
-                <Button variant="outline" onClick={() => setSeparatingOrder(null)}>
-                  Voltar
-                </Button>
+                <Button variant="outline" onClick={() => setSeparatingOrder(null)}>Voltar</Button>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -280,7 +271,6 @@ export default function OrdersPage() {
                       )}
                     </div>
                   ))}
-
                   {separatingOrder.packedPhotoUrl && (
                     <div className="mt-6 p-4 bg-slate-800/40 rounded-lg border border-slate-800 flex flex-col items-center">
                       <p className="font-medium text-white mb-2">Caixa Fechada:</p>
@@ -325,7 +315,7 @@ export default function OrdersPage() {
                     {(!orders || orders.length === 0) && (
                       <TableRow>
                         <TableCell colSpan={5} className="text-center py-8 text-slate-500">
-                          Nenhum pedido encontrado.
+                          {orders === undefined ? "Carregando..." : "Nenhum pedido encontrado."}
                         </TableCell>
                       </TableRow>
                     )}
@@ -349,7 +339,9 @@ export default function OrdersPage() {
                   </div>
                 ))}
                 {(!orders || orders.length === 0) && (
-                  <p className="text-center py-8 text-slate-500 text-sm">Nenhum pedido encontrado.</p>
+                  <p className="text-center py-8 text-slate-500 text-sm">
+                    {orders === undefined ? "Carregando..." : "Nenhum pedido encontrado."}
+                  </p>
                 )}
               </CardContent>
             </Card>
@@ -358,9 +350,7 @@ export default function OrdersPage() {
 
         <TabsContent value="create" className="mt-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Criar Novo Pedido</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Criar Novo Pedido</CardTitle></CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
@@ -374,10 +364,7 @@ export default function OrdersPage() {
                         if (e.key === "Enter") {
                           if (e.currentTarget.value.trim().length < 3 || /\d/.test(e.currentTarget.value)) {
                             setErrors(prev => ({...prev, customerName: "Mínimo 3 letras, sem números."}));
-                          } else {
-                            e.preventDefault();
-                            document.getElementById("input-campanha")?.focus();
-                          }
+                          } else { e.preventDefault(); document.getElementById("input-campanha")?.focus(); }
                         }
                       }}
                     />
@@ -390,9 +377,7 @@ export default function OrdersPage() {
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {CAMPANHAS.map(c => (
-                          <SelectItem key={c} value={c}>{c}</SelectItem>
-                        ))}
+                        {CAMPANHAS.map(c => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -406,10 +391,7 @@ export default function OrdersPage() {
                         if (e.key === "Enter") {
                           if (e.currentTarget.value.trim().length < 3 || /\d/.test(e.currentTarget.value)) {
                             setErrors(prev => ({...prev, destinationCity: "Mínimo 3 letras, sem números."}));
-                          } else {
-                            e.preventDefault();
-                            document.getElementById("input-responsavel")?.focus();
-                          }
+                          } else { e.preventDefault(); document.getElementById("input-responsavel")?.focus(); }
                         }
                       }}
                     />
@@ -422,9 +404,7 @@ export default function OrdersPage() {
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {RESPONSAVEIS.map(r => (
-                          <SelectItem key={r} value={r}>{r}</SelectItem>
-                        ))}
+                        {RESPONSAVEIS.map(r => (<SelectItem key={r} value={r}>{r}</SelectItem>))}
                       </SelectContent>
                     </Select>
                     {responsible === "Outro" && (
@@ -433,10 +413,7 @@ export default function OrdersPage() {
                           placeholder="Digite o nome do responsável"
                           value={customResponsible}
                           onChange={e => { setCustomResponsible(e.target.value); setCustomResponsibleError(""); }}
-                          onBlur={e => {
-                            if (e.target.value.trim().length < 3 || /\d/.test(e.target.value))
-                              setCustomResponsibleError("Mínimo 3 letras, sem números.");
-                          }}
+                          onBlur={e => { if (e.target.value.trim().length < 3 || /\d/.test(e.target.value)) setCustomResponsibleError("Mínimo 3 letras, sem números."); }}
                           className="mt-2"
                         />
                         {customResponsibleError && <p className="text-red-500 text-xs mt-1">{customResponsibleError}</p>}
@@ -508,10 +485,7 @@ export default function OrdersPage() {
                     setSuggestions([]);
                     const lines = rawItems.split("\n");
                     const lastLine = lines[lines.length - 1].trim();
-                    if (!lastLine.match(/^\d+/)) {
-                      lines.pop();
-                      setRawItems(lines.join("\n"));
-                    }
+                    if (!lastLine.match(/^\d+/)) { lines.pop(); setRawItems(lines.join("\n")); }
                     handleParseItems();
                   }}>
                     <Search className="mr-2 h-4 w-4" /> Validar Itens
@@ -583,11 +557,7 @@ export default function OrdersPage() {
                         if (q.length >= 2 && products) {
                           setManualSearchResults(
                             products.filter(p => p.name.toLowerCase().includes(q.toLowerCase()))
-                              .sort((a, b) => {
-                                const aStarts = a.name.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1;
-                                const bStarts = b.name.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1;
-                                return aStarts - bStarts;
-                              })
+                              .sort((a, b) => (a.name.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1) - (b.name.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1))
                               .slice(0, 8)
                           );
                           setManualSearch({ idx, query: q });
@@ -636,8 +606,7 @@ export default function OrdersPage() {
                 <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg bg-green-600 hover:bg-green-700 text-white cursor-pointer flex-col items-center gap-2 justify-center" })}>
                   <Package className="h-8 w-8 shrink-0" />
                   <span>Foto do Pedido Embalado</span>
-                  <input type="file" accept="image/*" capture="environment" className="hidden"
-                    onChange={(e) => handlePhotoCapture(e, 'packed')} />
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePhotoCapture(e, 'packed')} />
                 </label>
               </>
             ) : (
@@ -647,8 +616,7 @@ export default function OrdersPage() {
                 <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg cursor-pointer flex-col items-center gap-2 justify-center" })}>
                   <Camera className="h-8 w-8 shrink-0" />
                   <span>Tirar Foto / Anexar</span>
-                  <input type="file" accept="image/*" capture="environment" className="hidden"
-                    onChange={(e) => handlePhotoCapture(e, 'item')} />
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePhotoCapture(e, 'item')} />
                 </label>
               </>
             )}

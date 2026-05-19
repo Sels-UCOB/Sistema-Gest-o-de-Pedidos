@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
-import { db, Product } from "@/lib/db";
+import React, { useState, useEffect, useCallback } from "react";
+import { Product } from "@/lib/db";
+import { getProducts, upsertProducts, upsertProduct, updateProduct, deleteProduct as deleteProductDb, clearProducts } from "@/lib/supabase-db";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Upload, Plus, Trash2, Edit2, Check, X } from "lucide-react";
 
 export default function ProductsPage() {
-  const products = useLiveQuery(() => db.products.toArray());
+  const [products, setProducts] = useState<Product[] | undefined>(undefined);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [newCode, setNewCode] = useState("");
   const [newName, setNewName] = useState("");
+
+  const loadProducts = useCallback(async () => {
+    const data = await getProducts();
+    setProducts(data);
+  }, []);
+
+  useEffect(() => { loadProducts(); }, [loadProducts]);
 
   async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -56,7 +63,8 @@ export default function ProductsPage() {
       }
     }
     if (newProducts.length > 0) {
-      await db.products.bulkPut(newProducts);
+      await upsertProducts(newProducts);
+      await loadProducts();
       alert(`Importados ${newProducts.length} produtos!`);
     } else {
       alert("Nenhum produto encontrado neste arquivo. Verifique o formato.");
@@ -67,9 +75,10 @@ export default function ProductsPage() {
     e.preventDefault();
     if (!newCode || !newName) return;
     try {
-      await db.products.put({ id: newCode.trim(), name: newName.trim() });
+      await upsertProduct({ id: newCode.trim(), name: newName.trim() });
       setNewCode("");
       setNewName("");
+      await loadProducts();
     } catch (err) {
       console.error(err);
       alert("Erro ao adicionar o produto.");
@@ -83,19 +92,22 @@ export default function ProductsPage() {
 
   const saveEdit = async (id: string) => {
     if (!editName.trim()) return;
-    await db.products.update(id, { name: editName.trim() });
+    await updateProduct(id, editName.trim());
     setEditingId(null);
+    await loadProducts();
   };
 
-  const deleteProduct = async (id: string) => {
+  const handleDeleteProduct = async (id: string) => {
     if (confirm("Deseja realmente excluir este produto?")) {
-      await db.products.delete(id);
+      await deleteProductDb(id);
+      await loadProducts();
     }
   };
 
   const clearAll = async () => {
     if (confirm("APAGAR TODOS OS PRODUTOS? Esta acao nao pode ser desfeita.")) {
-      await db.products.clear();
+      await clearProducts();
+      await loadProducts();
     }
   };
 
@@ -161,10 +173,12 @@ export default function ProductsPage() {
 
         <Card className="lg:col-span-2 border-slate-800 bg-slate-900/50">
           <CardHeader>
-            <CardTitle className="text-lg">Produtos Cadastrados ({products?.length || 0})</CardTitle>
+            <CardTitle className="text-lg">Produtos Cadastrados ({products?.length ?? 0})</CardTitle>
           </CardHeader>
           <CardContent>
-            {products && products.length > 0 ? (
+            {products === undefined ? (
+              <div className="text-center py-12 text-slate-500">Carregando...</div>
+            ) : products.length > 0 ? (
               <div className="rounded-md border max-h-[600px] overflow-y-auto overflow-x-auto">
                 <Table>
                   <TableHeader className="bg-slate-800/50 sticky top-0">
@@ -206,7 +220,7 @@ export default function ProductsPage() {
                           <Button size="icon" variant="ghost" onClick={() => startEditing(p)} className="h-8 w-8 text-slate-400 hover:text-white">
                             <Edit2 className="h-4 w-4" />
                           </Button>
-                          <Button size="icon" variant="ghost" onClick={() => deleteProduct(p.id)} className="h-8 w-8 text-red-500">
+                          <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(p.id)} className="h-8 w-8 text-red-500">
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </TableCell>
