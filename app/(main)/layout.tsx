@@ -189,7 +189,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         </header>
 
         <div className="flex-1 overflow-auto p-4 pb-36 md:pb-8 md:p-6 lg:p-8">
-          <div className="mx-auto h-full max-w-5xl w-full">
+          <div className="mx-auto min-h-full max-w-5xl w-full">
             <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded, refreshTick }}>
               {children}
             </UserContext.Provider>
