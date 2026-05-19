@@ -186,6 +186,7 @@ export default function OrdersPage() {
         console.error("Erro ao deduzir estoque:", e);
         alert("Pedido criado, mas houve um erro ao deduzir o estoque. Verifique o catálogo manualmente.");
       }
+      getInventory().then(setInventory).catch(() => {});
       setCustomerName("");
       setCampaignCode("");
       setWarehouse("");
