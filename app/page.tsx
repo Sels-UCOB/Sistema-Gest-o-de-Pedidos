@@ -25,7 +25,7 @@ export default function LoginPage() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      router.push("/products");
+      router.push("/orders");
     } catch {
       setError("E-mail ou senha inválidos.");
     } finally {
