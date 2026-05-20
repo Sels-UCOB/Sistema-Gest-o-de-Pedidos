@@ -12,6 +12,28 @@ import type { User } from "@supabase/supabase-js";
 
 type Profile = { full_name: string | null; role: "admin" | "operator"; campo: CampoId | null };
 
+const PROFILE_CACHE_KEY = "v1_profile";
+const PROFILE_CACHE_TTL = 8 * 60 * 60 * 1000; // 8 horas
+
+function readProfileCache(): Profile | null {
+  try {
+    const raw = localStorage.getItem(PROFILE_CACHE_KEY);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > PROFILE_CACHE_TTL) return null;
+    return data as Profile;
+  } catch { return null; }
+}
+
+function writeProfileCache(data: Profile) {
+  try { localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify({ data, ts: Date.now() })); } catch {}
+}
+
+function clearProfileCache() {
+  try { localStorage.removeItem(PROFILE_CACHE_KEY); } catch {}
+}
+
+
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -23,6 +45,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const lastHiddenRef = useRef(0);
+
+  // Restaura perfil do cache imediatamente — evita flash de "operador" enquanto o fetch acontece
+  useEffect(() => {
+    const cached = readProfileCache();
+    if (cached) setProfile(cached);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,13 +67,25 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       setAuthChecked(true);
 
       if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
-        const { data } = await supabase
-          .from("profiles")
-          .select("full_name, role, campo")
-          .eq("id", session.user.id)
-          .single();
-        if (cancelled) return;
-        if (data) setProfile(data);
+        try {
+          const fetchProfile = async () => {
+            const { data } = await supabase
+              .from("profiles")
+              .select("full_name, role, campo")
+              .eq("id", session.user.id)
+              .single();
+            return data as Profile | null;
+          };
+          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 8000));
+          const data = await Promise.race([fetchProfile(), timeout]);
+          if (cancelled) return;
+          if (data) {
+            setProfile(data);
+            writeProfileCache(data);
+          }
+        } catch {
+          // fetch travou ou falhou — mantém o perfil em cache já restaurado
+        }
         setProfileLoaded(true);
       } else if (event === "TOKEN_REFRESHED") {
         setRefreshTick(t => t + 1);
@@ -88,6 +128,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }, []);
 
   const handleLogout = async () => {
+    clearProfileCache();
     await supabase.auth.signOut();
     router.replace("/");
   };

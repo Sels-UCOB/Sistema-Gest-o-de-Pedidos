@@ -23,6 +23,28 @@ function withTimeout<T>(p: Promise<T>, ms = 12000): Promise<T> {
   ]);
 }
 
+const CACHE_KEY_SHIPMENTS = "v1_shipments";
+const CACHE_KEY_ORDERS_SLIM = "v1_orders_slim";
+
+function readCache<T>(key: string): { data: T; ts: number } | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function writeCache<T>(key: string, data: T) {
+  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+}
+
+function formatAge(ts: number): string {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return "Atualizado agora";
+  if (mins < 60) return `Atualizado há ${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  return `Atualizado há ${hrs}h`;
+}
+
 export default function ShipmentsPage() {
   const { profileLoaded, refreshTick } = useUserRole();
   const [activeTab, setActiveTab] = useState("create");
@@ -31,13 +53,23 @@ export default function ShipmentsPage() {
   const [shipments, setShipments] = useState<Shipment[] | undefined>(undefined);
 
   const [loadError, setLoadError] = useState(false);
+  const [cacheTs, setCacheTs] = useState<number | null>(null);
+
+  // Restaura cache imediatamente no mount — sem "Carregando..." se já há dados salvos
+  useEffect(() => {
+    const sc = readCache<Shipment[]>(CACHE_KEY_SHIPMENTS);
+    if (sc) { setShipments(sc.data); setCacheTs(sc.ts); }
+    const oc = readCache<Order[]>(CACHE_KEY_ORDERS_SLIM);
+    if (oc) setAllOrders(oc.data);
+  }, []);
 
   const loadOrders = useCallback(async () => {
     try {
       const data = await withTimeout(getOrders());
       setAllOrders(data);
+      writeCache(CACHE_KEY_ORDERS_SLIM, data);
     } catch {
-      setAllOrders([]);
+      setAllOrders(prev => prev ?? []);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -46,8 +78,11 @@ export default function ShipmentsPage() {
       const data = await withTimeout(getShipments());
       setShipments(data);
       setLoadError(false);
+      const ts = Date.now();
+      writeCache(CACHE_KEY_SHIPMENTS, data);
+      setCacheTs(ts);
     } catch {
-      setShipments([]);
+      setShipments(prev => prev ?? []);
       setLoadError(true);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -192,6 +227,9 @@ export default function ShipmentsPage() {
         </TabsList>
 
         <TabsContent value="list" className="mt-6">
+          {cacheTs && (
+            <p className="text-xs text-slate-500 mb-2">{formatAge(cacheTs)}</p>
+          )}
           {loadError && (
             <div className="mb-4 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
               <p className="text-sm text-red-400">Falha ao carregar os dados. Verifique sua conexão.</p>
