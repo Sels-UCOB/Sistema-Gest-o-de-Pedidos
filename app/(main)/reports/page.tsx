@@ -26,7 +26,7 @@ export default function ReportsPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [startDate, setStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [campoFilter, setCampoFilter] = useState("ALL");
   const [responsibleFilter, setResponsibleFilter] = useState("ALL");
