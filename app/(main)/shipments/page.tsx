@@ -104,7 +104,7 @@ export default function ShipmentsPage() {
         type: editType,
         carrierName: editType === "transportadora" ? editCarrierName : null,
         carrierPhone: editType === "transportadora" ? editCarrierPhone : null,
-        shippingDate: new Date(editShippingDate).getTime(),
+        shippingDate: new Date(editShippingDate + "T00:00:00").getTime(),
         pickupName: editType === "presencial" ? editPickupName : null,
       });
       setEditingShipment(null);
@@ -128,7 +128,7 @@ export default function ShipmentsPage() {
         type: shippingType,
         carrierName: shippingType === "transportadora" ? carrierName : undefined,
         carrierPhone: shippingType === "transportadora" ? carrierPhone : undefined,
-        shippingDate: new Date(shippingDate).getTime(),
+        shippingDate: new Date(shippingDate + "T00:00:00").getTime(),
         pickupName: shippingType === "presencial" ? pickupName : undefined,
         orderIds: selectedOrderIds,
         status: "pending",
