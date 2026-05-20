@@ -107,7 +107,7 @@ export default function GalleryPage() {
           onChange={e => setFilterCustomer(e.target.value)}
           className="sm:w-52 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
         />
-        <Select value={filterCampaign} onValueChange={setFilterCampaign}>
+        <Select value={filterCampaign} onValueChange={v => setFilterCampaign(v ?? "all")}>
           <SelectTrigger className="sm:w-56 bg-slate-900 border-slate-700 text-slate-200">
             <SelectValue placeholder="Campanha" />
           </SelectTrigger>
