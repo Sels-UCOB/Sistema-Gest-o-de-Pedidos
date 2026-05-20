@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Order, OrderItem, Product } from "@/lib/db";
-import { getProducts, getOrders, getOrderFull, addOrder, updateOrder, deductInventoryStock, getInventory } from "@/lib/supabase-db";
+import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deductInventoryStock, getInventory } from "@/lib/supabase-db";
 import type { InventoryRow } from "@/lib/supabase-db";
 import { CAMPO_MAP, WAREHOUSES, WarehouseId } from "@/lib/campos";
 import { findBestMatch } from "@/lib/string-utils";
@@ -31,6 +31,9 @@ export default function OrdersPage() {
   const [activeTab, setActiveTab] = useState("create");
   const [products, setProducts] = useState<Product[] | undefined>(undefined);
   const [orders, setOrders] = useState<Order[] | undefined>(undefined);
+  const [hasMore, setHasMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [campaignCode, setCampaignCode] = useState("");
@@ -39,12 +42,30 @@ export default function OrdersPage() {
 
   const loadOrders = useCallback(async () => {
     try {
-      const data = await getOrders();
+      const { orders: data, hasMore: more } = await getOrdersPaged(0);
       setOrders(data);
+      setHasMore(more);
+      setCurrentPage(0);
     } catch {
       setOrders([]);
+      setHasMore(false);
     }
   }, []);
+
+  const loadMoreOrders = async () => {
+    setLoadingMore(true);
+    try {
+      const next = currentPage + 1;
+      const { orders: data, hasMore: more } = await getOrdersPaged(next);
+      setOrders(prev => [...(prev ?? []), ...data]);
+      setHasMore(more);
+      setCurrentPage(next);
+    } catch {
+      // silent
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     if (!profileLoaded) return;
@@ -463,6 +484,13 @@ export default function OrdersPage() {
                     )}
                   </TableBody>
                 </Table>
+                {hasMore && (
+                  <div className="flex justify-center p-4 border-t border-slate-800">
+                    <Button variant="outline" onClick={loadMoreOrders} disabled={loadingMore}>
+                      {loadingMore ? "Carregando..." : "Carregar mais"}
+                    </Button>
+                  </div>
+                )}
               </CardContent>
               <CardContent className="p-3 flex flex-col gap-3 md:hidden">
                 {orders?.map(order => (
@@ -491,6 +519,13 @@ export default function OrdersPage() {
                   <p className="text-center py-8 text-slate-500 text-sm">
                     {orders === undefined ? "Carregando..." : "Nenhum pedido encontrado."}
                   </p>
+                )}
+                {hasMore && (
+                  <div className="flex justify-center pt-2 pb-1">
+                    <Button variant="outline" onClick={loadMoreOrders} disabled={loadingMore} className="w-full">
+                      {loadingMore ? "Carregando..." : "Carregar mais"}
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>

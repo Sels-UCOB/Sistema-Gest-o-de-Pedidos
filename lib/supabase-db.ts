@@ -79,6 +79,18 @@ export async function getOrders(): Promise<Order[]> {
   return (data ?? []).map(mapOrderSlim);
 }
 
+export async function getOrdersPaged(page: number, pageSize = 25): Promise<{ orders: Order[]; hasMore: boolean }> {
+  const from = page * pageSize;
+  const { data, error } = await supabase
+    .from("orders")
+    .select("id, customer_name, campaign_code, destination_city, responsible, status, items, created_at, shipment_id")
+    .order("created_at", { ascending: false })
+    .range(from, from + pageSize);
+  if (error) throw error;
+  const hasMore = (data ?? []).length > pageSize;
+  return { orders: (data ?? []).slice(0, pageSize).map(mapOrderSlim), hasMore };
+}
+
 export async function getOrderFull(id: string): Promise<Order> {
   const { data, error } = await supabase
     .from("orders")
