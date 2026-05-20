@@ -91,6 +91,7 @@ export default function OrdersPage() {
   const [photoItemQueue, setPhotoItemQueue] = useState<OrderItem | null>(null);
   const [photoItemIndex, setPhotoItemIndex] = useState<number | null>(null);
   const [packedPhotoQueue, setPackedPhotoQueue] = useState<Order | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   const [warehouse, setWarehouse] = useState<WarehouseId | "">("");
 
@@ -393,7 +394,10 @@ export default function OrdersPage() {
                         <p className="text-xs text-slate-500 mt-1">Cód: {item.productId}</p>
                       </div>
                       {item.photoUrl && (
-                        <div className="h-10 w-10 border rounded overflow-hidden">
+                        <div
+                          className="h-10 w-10 border rounded overflow-hidden cursor-pointer hover:opacity-75 transition-opacity"
+                          onClick={() => setPreviewImageUrl(item.photoUrl!)}
+                        >
                           <img src={item.photoUrl} alt="separado" className="object-cover w-full h-full" />
                         </div>
                       )}
@@ -402,7 +406,12 @@ export default function OrdersPage() {
                   {separatingOrder.packedPhotoUrl && (
                     <div className="mt-6 p-4 bg-slate-800/40 rounded-lg border border-slate-800 flex flex-col items-center">
                       <p className="font-medium text-white mb-2">Caixa Fechada:</p>
-                      <img src={separatingOrder.packedPhotoUrl} alt="Caixa embalada" className="max-w-xs rounded shadow-sm border" />
+                      <img
+                        src={separatingOrder.packedPhotoUrl}
+                        alt="Caixa embalada"
+                        className="max-w-xs rounded shadow-sm border cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => setPreviewImageUrl(separatingOrder.packedPhotoUrl!)}
+                      />
                     </div>
                   )}
                 </div>
@@ -796,6 +805,27 @@ export default function OrdersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {previewImageUrl && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-4"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div className="relative max-w-3xl w-full" onClick={e => e.stopPropagation()}>
+            <button
+              className="absolute -top-9 right-0 text-white/70 hover:text-white text-sm transition-colors"
+              onClick={() => setPreviewImageUrl(null)}
+            >
+              ✕ Fechar
+            </button>
+            <img
+              src={previewImageUrl}
+              alt="Preview"
+              className="w-full max-h-[85vh] object-contain rounded-xl shadow-2xl"
+            />
+          </div>
+        </div>
+      )}
 
       {(photoItemQueue || packedPhotoQueue) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

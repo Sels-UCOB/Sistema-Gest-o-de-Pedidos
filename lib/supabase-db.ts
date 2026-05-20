@@ -125,6 +125,16 @@ export async function updateOrder(id: string, updates: Partial<Order>): Promise<
   if (error) throw error;
 }
 
+export async function getOrdersForGallery(): Promise<Order[]> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("id, customer_name, campaign_code, destination_city, status, items, packed_photo_url, created_at")
+    .in("status", ["closed", "shipped"])
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(mapOrder);
+}
+
 // ─── Shipments ───────────────────────────────────────────────────────────────
 
 function mapShipment(row: Record<string, unknown>): Shipment {

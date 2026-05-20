@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Package, ShoppingCart, Truck, LogOut, Shield, Users, FileText } from "lucide-react";
+import { Package, ShoppingCart, Truck, LogOut, Shield, Users, FileText, Images } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { UserContext } from "@/lib/user-context";
@@ -151,7 +151,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     { to: "/shipments", icon: Truck, label: "Envios" },
     { to: "/reports", icon: FileText, label: "Relatórios" },
     { to: "/products", icon: Package, label: "Catálogo" },
-    ...(isAdmin ? [{ to: "/admin", icon: Users, label: "Usuários" }] : []),
+    ...(isAdmin ? [
+      { to: "/admin", icon: Users, label: "Usuários" },
+      { to: "/gallery", icon: Images, label: "Galeria" },
+    ] : []),
   ];
 
   return (
