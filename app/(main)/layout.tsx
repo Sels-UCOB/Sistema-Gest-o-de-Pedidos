@@ -62,14 +62,19 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     const onVisibility = async () => {
       if (document.visibilityState === "hidden") {
         lastHiddenRef.current = Date.now();
-      } else if (Date.now() - lastHiddenRef.current > 5 * 60 * 1000) {
+      } else if (Date.now() - lastHiddenRef.current > 2 * 60 * 1000) {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.replace("/"); return; }
         setRefreshTick(t => t + 1);
       }
     };
+    const onOnline = () => setRefreshTick(t => t + 1);
     document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", onOnline);
+    };
   }, [router]);
 
   useEffect(() => {

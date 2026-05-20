@@ -117,6 +117,9 @@ export async function updateOrder(id: string, updates: Partial<Order>): Promise<
   if (updates.items !== undefined) row.items = updates.items;
   if (updates.packedPhotoUrl !== undefined) row.packed_photo_url = updates.packedPhotoUrl;
   if (updates.shipmentId !== undefined) row.shipment_id = updates.shipmentId;
+  if (updates.customerName !== undefined) row.customer_name = updates.customerName;
+  if (updates.campaignCode !== undefined) row.campaign_code = updates.campaignCode;
+  if (updates.destinationCity !== undefined) row.destination_city = updates.destinationCity;
 
   const { error } = await supabase.from("orders").update(row).eq("id", id);
   if (error) throw error;
@@ -170,6 +173,23 @@ export async function addShipment(shipment: Omit<Shipment, "id" | "createdAt">):
     .single();
   if (error) throw error;
   return mapShipment(data);
+}
+
+export async function updateShipment(id: string, updates: {
+  type?: Shipment["type"];
+  carrierName?: string | null;
+  carrierPhone?: string | null;
+  shippingDate?: number;
+  pickupName?: string | null;
+}): Promise<void> {
+  const row: Record<string, unknown> = {};
+  if (updates.type !== undefined) row.type = updates.type;
+  if (updates.carrierName !== undefined) row.carrier_name = updates.carrierName ?? null;
+  if (updates.carrierPhone !== undefined) row.carrier_phone = updates.carrierPhone ?? null;
+  if (updates.shippingDate !== undefined) row.shipping_date = updates.shippingDate;
+  if (updates.pickupName !== undefined) row.pickup_name = updates.pickupName ?? null;
+  const { error } = await supabase.from("shipments").update(row).eq("id", id);
+  if (error) throw error;
 }
 
 export async function appendReceiptPhoto(id: string, photoUrl: string): Promise<void> {

@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Camera, Search, PlusCircle, ChevronRight, Package } from "lucide-react";
+import { Camera, Search, PlusCircle, ChevronRight, Package, Pencil, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUserRole } from "@/lib/user-context";
@@ -93,6 +93,44 @@ export default function OrdersPage() {
   const [packedPhotoQueue, setPackedPhotoQueue] = useState<Order | null>(null);
 
   const [warehouse, setWarehouse] = useState<WarehouseId | "">("");
+
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState("");
+  const [editCampaignCode, setEditCampaignCode] = useState("");
+  const [editDestinationCity, setEditDestinationCity] = useState("");
+  const [editItems, setEditItems] = useState<OrderItem[]>([]);
+  const [editSaving, setEditSaving] = useState(false);
+
+  const openEditOrder = (order: Order) => {
+    setEditingOrder(order);
+    setEditCustomerName(order.customerName);
+    setEditCampaignCode(order.campaignCode);
+    setEditDestinationCity(order.destinationCity);
+    setEditItems(order.items.map(i => ({ ...i })));
+  };
+
+  const handleSaveEditOrder = async () => {
+    if (!editingOrder) return;
+    const nomeValido = (val: string) => val.trim().length >= 3 && /^[a-zA-ZÀ-ÿ\s]+$/.test(val.trim());
+    if (!nomeValido(editCustomerName)) { alert("Nome do cliente: mínimo 3 letras, sem números."); return; }
+    if (!nomeValido(editDestinationCity)) { alert("Cidade de destino: mínimo 3 letras, sem números."); return; }
+    if (editItems.length === 0) { alert("O pedido precisa ter ao menos um item."); return; }
+    setEditSaving(true);
+    try {
+      await updateOrder(editingOrder.id, {
+        customerName: editCustomerName,
+        campaignCode: editCampaignCode,
+        destinationCity: editDestinationCity,
+        items: editItems,
+      });
+      setEditingOrder(null);
+      await loadOrders();
+    } catch {
+      alert("Erro ao salvar alterações.");
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   // Persiste qual pedido estava sendo separado
   useEffect(() => {
@@ -394,7 +432,12 @@ export default function OrdersPage() {
                             {statusMap[order.status].label}
                           </span>
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right flex items-center justify-end gap-1">
+                          {(order.status === 'pending' || order.status === 'separating') && (
+                            <Button size="sm" variant="ghost" onClick={() => openEditOrder(order)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button size="sm" variant="ghost" disabled={loadingOrderId === order.id} onClick={() => openSeparationView(order)}>
                             {loadingOrderId === order.id ? "..." : order.status === 'pending' || order.status === 'separating' ? "Separar" : "Visualizar"}
                             <ChevronRight className="ml-2 h-4 w-4" />
@@ -422,10 +465,17 @@ export default function OrdersPage() {
                         {statusMap[order.status].label}
                       </span>
                     </div>
-                    <Button size="sm" variant="ghost" disabled={loadingOrderId === order.id} onClick={() => openSeparationView(order)}>
-                      {loadingOrderId === order.id ? "..." : order.status === 'pending' || order.status === 'separating' ? "Separar" : "Ver"}
-                      <ChevronRight className="ml-1 h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      {(order.status === 'pending' || order.status === 'separating') && (
+                        <Button size="sm" variant="ghost" onClick={() => openEditOrder(order)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" disabled={loadingOrderId === order.id} onClick={() => openSeparationView(order)}>
+                        {loadingOrderId === order.id ? "..." : order.status === 'pending' || order.status === 'separating' ? "Separar" : "Ver"}
+                        <ChevronRight className="ml-1 h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
                 {(!orders || orders.length === 0) && (
@@ -684,6 +734,64 @@ export default function OrdersPage() {
             <Button variant="outline" onClick={() => setShowPreview(false)}>Cancelar</Button>
             <Button onClick={handleCreateOrder} disabled={!profileLoaded}>
               <PlusCircle className="mr-2 h-4 w-4" /> Confirmar Pedido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingOrder} onOpenChange={(open) => { if (!open) setEditingOrder(null); }}>
+        <DialogContent className="max-w-lg border-slate-800 bg-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-white">Editar Pedido</DialogTitle>
+            <DialogDescription className="text-slate-400">Altere os dados do pedido. Itens separados são preservados.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-200">Nome do Cliente</label>
+              <Input value={editCustomerName} onChange={e => setEditCustomerName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-200">Código da Campanha</label>
+              <Select value={editCampaignCode} onValueChange={(v) => setEditCampaignCode(v ?? "")}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {CAMPANHAS.map(c => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-200">Cidade de Destino</label>
+              <Input value={editDestinationCity} onChange={e => setEditDestinationCity(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-200">Itens</label>
+              <div className="space-y-2">
+                {editItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2 bg-slate-800 p-2 rounded-lg border border-slate-700">
+                    <div className="flex items-center gap-1">
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => {
+                        setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: Math.max(1, it.quantity - 1) } : it));
+                      }}>−</Button>
+                      <span className="text-white font-bold text-sm w-6 text-center">{item.quantity}</span>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => {
+                        setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: it.quantity + 1 } : it));
+                      }}>+</Button>
+                    </div>
+                    <span className="text-slate-200 text-sm flex-1 truncate">{item.name}</span>
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-300" onClick={() => {
+                      setEditItems(prev => prev.filter((_, i) => i !== idx));
+                    }}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingOrder(null)}>Cancelar</Button>
+            <Button onClick={handleSaveEditOrder} disabled={editSaving}>
+              {editSaving ? "Salvando..." : "Salvar Alterações"}
             </Button>
           </DialogFooter>
         </DialogContent>

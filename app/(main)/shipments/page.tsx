@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Order, Shipment } from "@/lib/db";
-import { getOrders, getShipments, addShipment, updateOrder, appendReceiptPhoto } from "@/lib/supabase-db";
+import { getOrders, getShipments, addShipment, updateOrder, updateShipment, appendReceiptPhoto } from "@/lib/supabase-db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -11,9 +11,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Camera, Truck } from "lucide-react";
+import { Camera, Truck, Pencil } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { useUserRole } from "@/lib/user-context";
+
+function withTimeout<T>(p: Promise<T>, ms = 12000): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms)),
+  ]);
+}
 
 export default function ShipmentsPage() {
   const { profileLoaded, refreshTick } = useUserRole();
@@ -22,23 +30,35 @@ export default function ShipmentsPage() {
   const [allOrders, setAllOrders] = useState<Order[] | undefined>(undefined);
   const [shipments, setShipments] = useState<Shipment[] | undefined>(undefined);
 
+  const [loadError, setLoadError] = useState(false);
+
   const loadOrders = useCallback(async () => {
     try {
-      const data = await getOrders();
+      const data = await withTimeout(getOrders());
       setAllOrders(data);
     } catch {
       setAllOrders([]);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadShipments = useCallback(async () => {
     try {
-      const data = await getShipments();
+      const data = await withTimeout(getShipments());
       setShipments(data);
+      setLoadError(false);
     } catch {
       setShipments([]);
+      setLoadError(true);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleRetry = useCallback(() => {
+    setShipments(undefined);
+    setAllOrders(undefined);
+    setLoadError(false);
+    loadOrders();
+    loadShipments();
+  }, [loadOrders, loadShipments]);
 
   useEffect(() => {
     if (!profileLoaded) return;
@@ -56,6 +76,45 @@ export default function ShipmentsPage() {
 
   const [activeShipmentId, setActiveShipmentId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const [editingShipment, setEditingShipment] = useState<Shipment | null>(null);
+  const [editType, setEditType] = useState<"transportadora" | "presencial">("transportadora");
+  const [editCarrierName, setEditCarrierName] = useState("");
+  const [editCarrierPhone, setEditCarrierPhone] = useState("");
+  const [editShippingDate, setEditShippingDate] = useState("");
+  const [editPickupName, setEditPickupName] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  const openEditShipment = (shipment: Shipment) => {
+    setEditingShipment(shipment);
+    setEditType(shipment.type);
+    setEditCarrierName(shipment.carrierName ?? "");
+    setEditCarrierPhone(shipment.carrierPhone ?? "");
+    setEditShippingDate(format(shipment.shippingDate, "yyyy-MM-dd"));
+    setEditPickupName(shipment.pickupName ?? "");
+  };
+
+  const handleSaveEditShipment = async () => {
+    if (!editingShipment) return;
+    if (editType === "transportadora" && !editCarrierName.trim()) { alert("Informe o nome da transportadora."); return; }
+    if (editType === "presencial" && !editPickupName.trim()) { alert("Informe o nome de quem vai retirar."); return; }
+    setEditSaving(true);
+    try {
+      await updateShipment(editingShipment.id, {
+        type: editType,
+        carrierName: editType === "transportadora" ? editCarrierName : null,
+        carrierPhone: editType === "transportadora" ? editCarrierPhone : null,
+        shippingDate: new Date(editShippingDate).getTime(),
+        pickupName: editType === "presencial" ? editPickupName : null,
+      });
+      setEditingShipment(null);
+      await loadShipments();
+    } catch {
+      alert("Erro ao salvar alterações.");
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
 
   const handleCreateShipment = async () => {
@@ -133,6 +192,14 @@ export default function ShipmentsPage() {
         </TabsList>
 
         <TabsContent value="list" className="mt-6">
+          {loadError && (
+            <div className="mb-4 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+              <p className="text-sm text-red-400">Falha ao carregar os dados. Verifique sua conexão.</p>
+              <Button size="sm" variant="outline" className="border-red-500/40 text-red-400 hover:bg-red-500/10" onClick={handleRetry}>
+                Tentar novamente
+              </Button>
+            </div>
+          )}
           <Card>
             <CardContent className="p-0 overflow-x-auto hidden md:block">
               <Table>
@@ -161,7 +228,12 @@ export default function ShipmentsPage() {
                           {shipment.status === "shipped" ? "Enviado/Concluído" : "Aguardando Comprovante"}
                         </span>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right flex items-center justify-end gap-1">
+                        {shipment.status === "pending" && (
+                          <Button size="sm" variant="ghost" onClick={() => openEditShipment(shipment)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button size="sm" variant="outline" onClick={() => setActiveShipmentId(shipment.id)}>
                           Comprovantes
                         </Button>
@@ -192,9 +264,16 @@ export default function ShipmentsPage() {
                       {shipment.status === "shipped" ? "Enviado" : "Aguardando"}
                     </span>
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => setActiveShipmentId(shipment.id)}>
-                    Comprovantes
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    {shipment.status === "pending" && (
+                      <Button size="sm" variant="ghost" onClick={() => openEditShipment(shipment)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => setActiveShipmentId(shipment.id)}>
+                      Comprovantes
+                    </Button>
+                  </div>
                 </div>
               ))}
               {(!shipments || shipments.length === 0) && (
@@ -287,6 +366,58 @@ export default function ShipmentsPage() {
         </TabsContent>
 
       </Tabs>
+
+      <Dialog open={!!editingShipment} onOpenChange={(open) => { if (!open) setEditingShipment(null); }}>
+        <DialogContent className="max-w-md border-slate-800 bg-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-white">Editar Envio</DialogTitle>
+            <DialogDescription className="text-slate-400">Altere os dados do envio enquanto ele aguarda comprovante.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Método de Entrega</Label>
+              <RadioGroup value={editType} onValueChange={(v) => setEditType(v as "transportadora" | "presencial")} className="flex space-x-4">
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="transportadora" id="edit-trans" />
+                  <Label htmlFor="edit-trans">Transportadora</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="presencial" id="edit-pres" />
+                  <Label htmlFor="edit-pres">Retirada Presencial</Label>
+                </div>
+              </RadioGroup>
+            </div>
+            {editType === "transportadora" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Transportadora</Label>
+                  <Input value={editCarrierName} onChange={e => setEditCarrierName(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Telefone</Label>
+                  <Input value={editCarrierPhone} onChange={e => setEditCarrierPhone(e.target.value)} />
+                </div>
+              </div>
+            )}
+            {editType === "presencial" && (
+              <div className="space-y-2">
+                <Label>Nome de Quem Retirou</Label>
+                <Input value={editPickupName} onChange={e => setEditPickupName(e.target.value)} />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Data de Envio</Label>
+              <Input type="date" value={editShippingDate} onChange={e => setEditShippingDate(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingShipment(null)}>Cancelar</Button>
+            <Button onClick={handleSaveEditShipment} disabled={editSaving}>
+              {editSaving ? "Salvando..." : "Salvar Alterações"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {activeShipmentId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setActiveShipmentId(null)}>
