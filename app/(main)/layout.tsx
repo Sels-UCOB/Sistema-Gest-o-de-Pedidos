@@ -158,7 +158,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   ];
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden">
+    <div className="flex h-dvh bg-slate-950 text-slate-200 font-sans overflow-hidden">
       {/* Sidebar — desktop only */}
       <aside className="hidden md:flex flex-col w-64 shrink-0 border-r border-slate-800 bg-slate-900/50 backdrop-blur-md">
         <div className="pt-6 pb-4 px-6 flex flex-col items-center gap-2 border-b border-slate-800">
@@ -237,7 +237,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">
+        <div className="flex-1 overflow-y-auto overscroll-y-contain p-4 md:p-6 lg:p-8">
           <div className="mx-auto min-h-full max-w-5xl w-full">
             <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded, refreshTick }}>
               {children}
