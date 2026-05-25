@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Package, ShoppingCart, Truck, LogOut, Shield, Users, FileText, Images } from "lucide-react";
+import { Package, ShoppingCart, Truck, LogOut, Shield, Users, FileText, Images, Container } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { UserContext } from "@/lib/user-context";
 import type { CampoId } from "@/lib/campos";
 import type { User } from "@supabase/supabase-js";
 
-type Profile = { full_name: string | null; role: "admin" | "operator"; campo: CampoId | null };
+type Profile = { full_name: string | null; role: "admin" | "operator"; campo: CampoId | null; has_fiorino: boolean };
 
 const PROFILE_CACHE_KEY = "v1_profile";
 const PROFILE_CACHE_TTL = 8 * 60 * 60 * 1000; // 8 horas
@@ -71,7 +71,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           const fetchProfile = async () => {
             const { data } = await supabase
               .from("profiles")
-              .select("full_name, role, campo")
+              .select("full_name, role, campo, has_fiorino")
               .eq("id", session.user.id)
               .single();
             return data as Profile | null;
@@ -137,6 +137,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const userInitial = displayName[0]?.toUpperCase() ?? "";
   const isAdmin = profile?.role === "admin";
   const campo = (profile?.campo as CampoId) ?? null;
+  const hasFiorino = profile?.has_fiorino ?? false;
 
   if (!authChecked) {
     return (
@@ -151,9 +152,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     { to: "/shipments", icon: Truck, label: "Envios" },
     { to: "/reports", icon: FileText, label: "Relatórios" },
     { to: "/products", icon: Package, label: "Catálogo" },
+    ...(isAdmin || hasFiorino ? [{ to: "/fiorino", icon: Container, label: "Fiorino" }] : []),
     ...(isAdmin ? [
-      { to: "/admin", icon: Users, label: "Usuários" },
       { to: "/gallery", icon: Images, label: "Galeria" },
+      { to: "/admin", icon: Users, label: "Configurações" },
     ] : []),
   ];
 
@@ -239,7 +241,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
         <div className="flex-1 overflow-y-auto overscroll-y-contain p-4 md:p-6 lg:p-8">
           <div className="mx-auto min-h-full max-w-5xl w-full">
-            <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded, refreshTick }}>
+            <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded, refreshTick, hasFiorino }}>
               {children}
             </UserContext.Provider>
           </div>

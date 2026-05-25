@@ -9,9 +9,10 @@ interface UserContextValue {
   campo: CampoId | null;
   profileLoaded: boolean;
   refreshTick: number;
+  hasFiorino: boolean;
 }
 
-export const UserContext = createContext<UserContextValue>({ isAdmin: false, displayName: "", campo: null, profileLoaded: false, refreshTick: 0 });
+export const UserContext = createContext<UserContextValue>({ isAdmin: false, displayName: "", campo: null, profileLoaded: false, refreshTick: 0, hasFiorino: false });
 
 export function useUserRole() {
   return useContext(UserContext);

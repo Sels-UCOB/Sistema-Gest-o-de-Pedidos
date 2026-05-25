@@ -30,12 +30,13 @@ export default function AdminPage() {
       .finally(() => setLoading(false));
   }, [isAdmin, profileLoaded, router, refreshTick]);
 
-  const handleChange = async (id: string, field: "role" | "campo", value: string) => {
+  const handleChange = async (id: string, field: "role" | "campo" | "has_fiorino", value: string | boolean) => {
     setSaving(id);
     try {
-      const update = field === "campo"
-        ? { campo: value === "null" ? null : value as ProfileRow["campo"] }
-        : { role: value as ProfileRow["role"] };
+      const update =
+        field === "campo"    ? { campo: value === "null" ? null : value as ProfileRow["campo"] } :
+        field === "has_fiorino" ? { has_fiorino: value as boolean } :
+                               { role: value as ProfileRow["role"] };
       await updateProfile(id, update);
       setProfiles(prev => prev.map(p => p.id === id ? { ...p, ...update } : p));
     } catch {
@@ -73,7 +74,7 @@ export default function AdminPage() {
                     <p className="text-sm font-medium text-white">{p.full_name ?? "—"}</p>
                     <p className="text-xs text-slate-500 mt-0.5">{p.email ?? p.id}</p>
                   </div>
-                  <div className="flex gap-3 flex-wrap">
+                  <div className="flex gap-3 flex-wrap items-end">
                     <div className="space-y-1 min-w-[130px]">
                       <p className="text-xs text-slate-400">Perfil</p>
                       <Select
@@ -89,6 +90,20 @@ export default function AdminPage() {
                           <SelectItem value="operator">Operador</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-1 min-w-[130px]">
+                      <p className="text-xs text-slate-400">Fiorino</p>
+                      <button
+                        onClick={() => handleChange(p.id, "has_fiorino", !p.has_fiorino)}
+                        disabled={saving === p.id}
+                        className={`h-8 px-3 rounded-md text-xs font-medium border transition-colors ${
+                          p.has_fiorino
+                            ? "bg-indigo-600/20 border-indigo-500/40 text-indigo-300 hover:bg-indigo-600/30"
+                            : "bg-slate-800/60 border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300"
+                        }`}
+                      >
+                        {p.has_fiorino ? "Habilitado" : "Desabilitado"}
+                      </button>
                     </div>
                     <div className="space-y-1 min-w-[130px]">
                       <p className="text-xs text-slate-400">Campo</p>

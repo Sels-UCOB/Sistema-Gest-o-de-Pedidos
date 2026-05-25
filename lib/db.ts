@@ -1,3 +1,20 @@
+import type { PlacedBox } from "@/app/(main)/fiorino/viewer";
+
+export type { PlacedBox };
+
+export interface FiorinoPlan {
+  id: string;
+  date: string;
+  campo: string | null;
+  campaignCode: string | null;
+  type: string;
+  notes: string | null;
+  boxes: PlacedBox[];
+  occupancyPct: number;
+  boxCount: number;
+  createdAt: string;
+}
+
 export interface Product {
   id: string;
   name: string;

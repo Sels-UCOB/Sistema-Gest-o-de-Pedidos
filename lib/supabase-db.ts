@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { Product, Order, OrderItem, Shipment } from "./db";
+import type { Product, Order, OrderItem, Shipment, FiorinoPlan } from "./db";
 import type { CampoId } from "./campos";
 
 // ─── Products ────────────────────────────────────────────────────────────────
@@ -279,6 +279,7 @@ export interface ProfileRow {
   email: string | null;
   role: "admin" | "operator";
   campo: CampoId | null;
+  has_fiorino: boolean;
 }
 
 export async function getProfiles(): Promise<ProfileRow[]> {
@@ -290,10 +291,63 @@ export async function getProfiles(): Promise<ProfileRow[]> {
     email: row.email as string | null,
     role: (row.role ?? "operator") as "admin" | "operator",
     campo: (row.campo ?? null) as CampoId | null,
+    has_fiorino: (row.has_fiorino as boolean) ?? false,
   }));
 }
 
-export async function updateProfile(id: string, updates: Partial<Pick<ProfileRow, "role" | "campo">>): Promise<void> {
+export async function updateProfile(id: string, updates: Partial<Pick<ProfileRow, "role" | "campo" | "has_fiorino">>): Promise<void> {
   const { error } = await supabase.from("profiles").update(updates).eq("id", id);
+  if (error) throw error;
+}
+
+// ─── Fiorino Plans ────────────────────────────────────────────────────────────
+
+function mapFiorinoPlan(row: Record<string, unknown>): FiorinoPlan {
+  return {
+    id: row.id as string,
+    date: row.date as string,
+    campo: (row.campo as string | null) ?? null,
+    campaignCode: (row.campaign_code as string | null) ?? null,
+    type: row.type as string,
+    notes: (row.notes as string | null) ?? null,
+    boxes: (row.boxes as FiorinoPlan["boxes"]) ?? [],
+    occupancyPct: (row.occupancy_pct as number) ?? 0,
+    boxCount: (row.box_count as number) ?? 0,
+    createdAt: row.created_at as string,
+  };
+}
+
+export async function getFiorinoPlans(): Promise<FiorinoPlan[]> {
+  const { data, error } = await supabase
+    .from("fiorino_plans")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(mapFiorinoPlan);
+}
+
+export async function addFiorinoPlan(plan: Omit<FiorinoPlan, "id" | "createdAt">): Promise<FiorinoPlan> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const { data, error } = await supabase
+    .from("fiorino_plans")
+    .insert({
+      date: plan.date,
+      campo: plan.campo ?? null,
+      campaign_code: plan.campaignCode ?? null,
+      type: plan.type,
+      notes: plan.notes ?? null,
+      boxes: plan.boxes,
+      occupancy_pct: plan.occupancyPct,
+      box_count: plan.boxCount,
+      created_by: session?.user.id ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return mapFiorinoPlan(data);
+}
+
+export async function deleteFiorinoPlan(id: string): Promise<void> {
+  const { error } = await supabase.from("fiorino_plans").delete().eq("id", id);
   if (error) throw error;
 }

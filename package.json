@@ -13,6 +13,7 @@
     "@base-ui/react": "^1.4.1",
     "@fontsource-variable/geist": "^5.2.8",
     "@supabase/supabase-js": "^2.106.0",
+    "@types/three": "^0.184.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -22,6 +23,7 @@
     "react-dom": "^19.0.1",
     "shadcn": "^4.7.0",
     "tailwind-merge": "^3.5.0",
+    "three": "^0.184.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
