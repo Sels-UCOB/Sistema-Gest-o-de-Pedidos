@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
-import { RotateCcw, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus } from "lucide-react";
 
 export interface PlacedBox {
   id: string;
@@ -51,11 +50,9 @@ const D = ROWS * CZ;
 const H = LEVELS * CY;
 
 const DEFAULT_ROT  = { x: 0.32, y: 0.60 };
-const ROT_STEP     = Math.PI / 10;   // ~18° por clique
 const ZOOM_DEFAULT = 1.0;
 const ZOOM_MIN     = 0.35;
 const ZOOM_MAX     = 3.2;
-const ZOOM_STEP    = 0.20;
 
 function makeLabel(text: string, px = 72): THREE.Sprite {
   const c = document.createElement("canvas");
@@ -102,12 +99,7 @@ export default function FiorinoViewer({ boxes }: Props) {
     zoom.current = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom.current + delta));
   }, []);
 
-  const resetView = useCallback(() => {
-    target.current = { ...DEFAULT_ROT };
-    zoom.current = ZOOM_DEFAULT;
-  }, []);
-
-  // Init scene (runs once)
+// Init scene (runs once)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -360,16 +352,6 @@ export default function FiorinoViewer({ boxes }: Props) {
     }
   }, [boxes]);
 
-  const CtrlBtn = ({ onClick, children, title }: { onClick: () => void; children: React.ReactNode; title?: string }) => (
-    <button
-      onClick={onClick}
-      title={title}
-      className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 active:bg-slate-800 transition-colors"
-    >
-      {children}
-    </button>
-  );
-
   return (
     <div className="relative w-full h-full select-none">
       <div
@@ -377,42 +359,6 @@ export default function FiorinoViewer({ boxes }: Props) {
         className="w-full h-full cursor-grab active:cursor-grabbing"
         style={{ touchAction: "none" }}
       />
-
-      {/* Controles de rotação — só mobile (desktop usa mouse) */}
-      <div className="md:hidden absolute bottom-3 right-3 flex flex-col items-center gap-1">
-        <CtrlBtn onClick={() => applyDelta(0, -ROT_STEP)} title="Girar cima">
-          <ChevronUp className="w-4 h-4" />
-        </CtrlBtn>
-        <div className="flex items-center gap-1">
-          <CtrlBtn onClick={() => applyDelta(-ROT_STEP, 0)} title="Girar esquerda">
-            <ChevronLeft className="w-4 h-4" />
-          </CtrlBtn>
-          <CtrlBtn onClick={resetView} title="Resetar vista">
-            <RotateCcw className="w-3.5 h-3.5" />
-          </CtrlBtn>
-          <CtrlBtn onClick={() => applyDelta(ROT_STEP, 0)} title="Girar direita">
-            <ChevronRight className="w-4 h-4" />
-          </CtrlBtn>
-        </div>
-        <CtrlBtn onClick={() => applyDelta(0, ROT_STEP)} title="Girar baixo">
-          <ChevronDown className="w-4 h-4" />
-        </CtrlBtn>
-      </div>
-
-      {/* Controles de zoom — só mobile (desktop usa scroll) */}
-      <div className="md:hidden absolute bottom-3 left-3 flex flex-col items-start gap-1">
-        <div className="flex gap-1">
-          <CtrlBtn onClick={() => applyZoom(ZOOM_STEP)} title="Aproximar">
-            <Plus className="w-4 h-4" />
-          </CtrlBtn>
-          <CtrlBtn onClick={() => applyZoom(-ZOOM_STEP)} title="Afastar">
-            <Minus className="w-4 h-4" />
-          </CtrlBtn>
-        </div>
-        <span className="text-[10px] text-slate-600 pointer-events-none leading-tight">
-          Arraste · Pinça p/ zoom
-        </span>
-      </div>
     </div>
   );
 }

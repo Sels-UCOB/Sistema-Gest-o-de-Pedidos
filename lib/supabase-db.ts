@@ -283,15 +283,25 @@ export interface ProfileRow {
 }
 
 export async function getProfiles(): Promise<ProfileRow[]> {
-  const { data, error } = await supabase.rpc("get_profiles_with_email");
-  if (error) throw error;
-  return (data ?? []).map((row: Record<string, unknown>) => ({
+  // RPC traz email (de auth.users) mas foi criado antes de has_fiorino existir.
+  // Buscamos has_fiorino direto de profiles em paralelo e mesclamos.
+  const [rpcRes, colsRes] = await Promise.all([
+    supabase.rpc("get_profiles_with_email"),
+    supabase.from("profiles").select("id, has_fiorino"),
+  ]);
+  if (rpcRes.error) throw rpcRes.error;
+
+  const fiorinoMap: Record<string, boolean> = Object.fromEntries(
+    (colsRes.data ?? []).map((r: { id: string; has_fiorino: boolean }) => [r.id, r.has_fiorino ?? false])
+  );
+
+  return (rpcRes.data ?? []).map((row: Record<string, unknown>) => ({
     id: row.id as string,
     full_name: row.full_name as string | null,
     email: row.email as string | null,
     role: (row.role ?? "operator") as "admin" | "operator",
     campo: (row.campo ?? null) as CampoId | null,
-    has_fiorino: (row.has_fiorino as boolean) ?? false,
+    has_fiorino: fiorinoMap[row.id as string] ?? false,
   }));
 }
 
