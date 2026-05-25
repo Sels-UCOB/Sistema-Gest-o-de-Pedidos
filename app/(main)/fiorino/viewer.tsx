@@ -20,12 +20,12 @@ export const BOX_CONFIGS: Record<
   Record<PlacedBox["orientation"], { cols: number; rows: number; levels: number }>
 > = {
   P: {
-    vertical:   { cols: 1, rows: 1, levels: 2 },
-    horizontal: { cols: 1, rows: 2, levels: 1 },
+    vertical:   { cols: 1, rows: 1, levels: 1 },
+    horizontal: { cols: 1, rows: 1, levels: 1 },
   },
   M: {
-    vertical:   { cols: 1, rows: 2, levels: 2 },
-    horizontal: { cols: 2, rows: 1, levels: 2 },
+    vertical:   { cols: 1, rows: 2, levels: 1 },
+    horizontal: { cols: 2, rows: 1, levels: 1 },
   },
   G: {
     vertical:   { cols: 2, rows: 2, levels: 3 },
