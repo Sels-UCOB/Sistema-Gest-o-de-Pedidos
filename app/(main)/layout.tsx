@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Package, ShoppingCart, Truck, LogOut, Shield, Users, FileText, Images, Container } from "lucide-react";
+import { ShoppingCart, Truck, LogOut, Shield, Container, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { UserContext } from "@/lib/user-context";
@@ -147,16 +147,25 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     );
   }
 
+  // Mapeamento de título para rotas que não aparecem no nav principal
+  const pageTitleMap: Record<string, string> = {
+    "/reports": "Relatórios",
+    "/products": "Catálogo",
+    "/gallery": "Galeria",
+    "/admin": "Usuários",
+  };
+  const currentPageTitle =
+    Object.entries(pageTitleMap).find(([path]) => pathname.startsWith(path))?.[1] ?? null;
+
   const navItems = [
-    { to: "/orders", icon: ShoppingCart, label: "Pedidos" },
-    { to: "/shipments", icon: Truck, label: "Envios" },
-    { to: "/reports", icon: FileText, label: "Relatórios" },
-    { to: "/products", icon: Package, label: "Catálogo" },
-    ...(isAdmin || hasFiorino ? [{ to: "/fiorino", icon: Container, label: "Fiorino" }] : []),
-    ...(isAdmin ? [
-      { to: "/gallery", icon: Images, label: "Galeria" },
-      { to: "/admin", icon: Users, label: "Configurações" },
-    ] : []),
+    { to: "/orders", icon: ShoppingCart, label: "Pedidos", activeFor: ["/orders"] },
+    { to: "/shipments", icon: Truck, label: "Envios", activeFor: ["/shipments"] },
+    ...(isAdmin || hasFiorino
+      ? [{ to: "/fiorino", icon: Container, label: "Fiorino", activeFor: ["/fiorino"] }]
+      : []),
+    ...(isAdmin
+      ? [{ to: "/settings", icon: Settings2, label: "Configurações", activeFor: ["/settings", "/reports", "/products", "/gallery", "/admin"] }]
+      : []),
   ];
 
   return (
@@ -171,7 +180,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         </div>
         <nav className="px-4 space-y-1 mt-4 flex-1">
           {navItems.map((item) => {
-            const isActive = pathname.startsWith(item.to);
+            const isActive = item.activeFor.some(p => pathname.startsWith(p));
             return (
               <Link
                 key={item.to}
@@ -204,7 +213,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-950">
         <header className="h-16 shrink-0 flex items-center justify-between px-4 md:px-8 border-b border-slate-800 bg-slate-900/30 backdrop-blur-md">
           <span className="font-semibold text-white uppercase tracking-wider">
-            {navItems.find((i) => pathname.startsWith(i.to))?.label || "Dashboard"}
+            {currentPageTitle ?? navItems.find((i) => i.activeFor.some(p => pathname.startsWith(p)))?.label ?? "Dashboard"}
           </span>
 
           {/* User menu */}
@@ -250,7 +259,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         {/* Bottom nav — mobile only, flex child so it never overlaps content */}
         <nav className="shrink-0 flex md:hidden border-t border-slate-800 bg-slate-900/95 backdrop-blur-md" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           {navItems.map((item) => {
-            const isActive = pathname.startsWith(item.to);
+            const isActive = item.activeFor.some(p => pathname.startsWith(p));
             return (
               <Link
                 key={item.to}
