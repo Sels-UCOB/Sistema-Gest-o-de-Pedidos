@@ -79,7 +79,7 @@ export default function ProductsPage() {
     return map;
   }, [inventory]);
 
-  const filteredProducts = useMemo(() => products ?? [], [products]);
+  const productList = products ?? [];
 
   const getStock = (productId: string, warehouseId: WarehouseId) =>
     inventoryMap.get(`${productId}__${warehouseId}`) ?? 0;
@@ -137,7 +137,6 @@ export default function ProductsPage() {
       }
 
       if (saldoColIdx < 0) saldoColIdx = productColIdx + 20;
-      console.log(`XLS: produtoCol=${productColIdx}, saldoCol=${saldoColIdx}`);
 
       const newProducts: Product[] = [];
       const inventoryRows: { product_id: string; warehouse_id: string; quantity: number }[] = [];
@@ -157,13 +156,6 @@ export default function ProductsPage() {
         const preview = rows.slice(0, 5).map(r => String((r as unknown[])[productColIdx] ?? "")).join("\n");
         alert(`Nenhum produto encontrado.\n\nColuna Produto: índice ${productColIdx}\nPrimeiras linhas:\n${preview}`);
         return;
-      }
-
-      if (inventoryRows.length === 0 && newProducts.length > 0) {
-        const saldoPreview = rows.slice(0, 8)
-          .map(r => `col${saldoColIdx}="${String((r as unknown[])[saldoColIdx] ?? "")}"`)
-          .join("\n");
-        console.warn(`Saldo Final (col ${saldoColIdx}) — nenhum valor > 0:\n${saldoPreview}`);
       }
 
       await upsertProducts(newProducts);
@@ -358,7 +350,7 @@ export default function ProductsPage() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-lg">
-                  Produtos Cadastrados ({filteredProducts.length})
+                  Produtos Cadastrados ({productList.length})
                 </CardTitle>
                 {isAdmin && (
                   <CardDescription className="mt-1">
@@ -384,7 +376,7 @@ export default function ProductsPage() {
           <CardContent>
             {products === undefined ? (
               <div className="text-center py-12 text-slate-500">Carregando...</div>
-            ) : filteredProducts.length > 0 ? (
+            ) : productList.length > 0 ? (
               <div className="rounded-md border max-h-[600px] overflow-y-auto overflow-x-auto">
                 <Table>
                   <TableHeader className="bg-slate-800/50 sticky top-0">
@@ -396,7 +388,7 @@ export default function ProductsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredProducts.map((p) => {
+                    {productList.map((p) => {
                       const qty = selectedWarehouse ? getStock(p.id, selectedWarehouse) : 0;
                       return (
                         <TableRow key={p.id}>
@@ -459,11 +451,9 @@ export default function ProductsPage() {
               </div>
             ) : (
               <div className="text-center py-12 text-slate-500">
-                {products.length === 0
-                  ? isAdmin
-                    ? "Nenhum produto cadastrado. Importe um XLS ou adicione manualmente."
-                    : "Nenhum produto cadastrado ainda."
-                  : "Nenhum produto importado para este campo ainda."}
+                {isAdmin
+                  ? "Nenhum produto cadastrado. Importe um XLS ou adicione manualmente."
+                  : "Nenhum produto cadastrado ainda."}
               </div>
             )}
           </CardContent>

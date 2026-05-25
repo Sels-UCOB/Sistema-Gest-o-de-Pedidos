@@ -8,5 +8,6 @@ coverage/
 *.log
 .env*
 !.env.example
+ACESSO.md
 tsconfig.tsbuildinfo
 .vercel
