@@ -35,6 +35,7 @@ export default function ProductsPage() {
   const [importWarehouse, setImportWarehouse] = useState<WarehouseId>("SEDE_EXT");
   const [importing, setImporting] = useState(false);
   const [selectedWarehouse, setSelectedWarehouse] = useState<WarehouseId | "">("");
+  const [onlyInStock, setOnlyInStock] = useState(false);
 
   const availableWarehouses = useMemo(
     () => isAdmin || !campo ? [...WAREHOUSES] : WAREHOUSES.filter(w => w.campo === campo),
@@ -83,6 +84,12 @@ export default function ProductsPage() {
 
   const getStock = (productId: string, warehouseId: WarehouseId) =>
     inventoryMap.get(`${productId}__${warehouseId}`) ?? 0;
+
+  const filteredList = useMemo(() => {
+    if (!onlyInStock || !selectedWarehouse) return productList;
+    return productList.filter(p => getStock(p.id, selectedWarehouse) > 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productList, onlyInStock, selectedWarehouse, inventoryMap]);
 
   function parseBrNumber(s: string): number {
     return Math.floor(parseFloat(s.replace(/\./g, "").replace(",", ".")) || 0);
@@ -350,7 +357,11 @@ export default function ProductsPage() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-lg">
-                  Produtos Cadastrados ({productList.length})
+                  Produtos Cadastrados (
+                  {onlyInStock && filteredList.length !== productList.length
+                    ? `${filteredList.length} de ${productList.length}`
+                    : productList.length}
+                  )
                 </CardTitle>
                 {isAdmin && (
                   <CardDescription className="mt-1">
@@ -358,19 +369,33 @@ export default function ProductsPage() {
                   </CardDescription>
                 )}
               </div>
-              <Select
-                value={selectedWarehouse}
-                onValueChange={(v) => setSelectedWarehouse(v as WarehouseId)}
-              >
-                <SelectTrigger className="w-full sm:w-[220px]">
-                  <SelectValue placeholder="Selecione o depósito..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableWarehouses.map(w => (
-                    <SelectItem key={w.id} value={w.id}>{w.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                <Select
+                  value={selectedWarehouse}
+                  onValueChange={(v) => setSelectedWarehouse(v as WarehouseId)}
+                >
+                  <SelectTrigger className="w-full sm:w-[220px]">
+                    <SelectValue placeholder="Selecione o depósito..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableWarehouses.map(w => (
+                      <SelectItem key={w.id} value={w.id}>{w.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedWarehouse && (
+                  <button
+                    onClick={() => setOnlyInStock(v => !v)}
+                    className={`h-9 px-3 rounded-lg text-xs font-medium border transition-colors shrink-0 ${
+                      onlyInStock
+                        ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-300"
+                        : "bg-slate-800/60 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                    }`}
+                  >
+                    Somente em estoque
+                  </button>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -388,7 +413,13 @@ export default function ProductsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {productList.map((p) => {
+                    {filteredList.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={isAdmin ? 4 : 3} className="text-center py-8 text-slate-500">
+                          Nenhum produto com estoque disponível em {selectedWarehouseLabel}.
+                        </TableCell>
+                      </TableRow>
+                    ) : filteredList.map((p) => {
                       const qty = selectedWarehouse ? getStock(p.id, selectedWarehouse) : 0;
                       return (
                         <TableRow key={p.id}>

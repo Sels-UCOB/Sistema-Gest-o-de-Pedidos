@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Order, OrderItem, Product } from "@/lib/db";
-import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deductInventoryStock, getInventory } from "@/lib/supabase-db";
+import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deleteOrder, deductInventoryStock, getInventory } from "@/lib/supabase-db";
 import type { InventoryRow } from "@/lib/supabase-db";
 import { CAMPO_MAP, WAREHOUSES, WarehouseId } from "@/lib/campos";
 import { findBestMatch } from "@/lib/string-utils";
@@ -116,6 +116,25 @@ export default function OrdersPage() {
 
   const [warehouse, setWarehouse] = useState<WarehouseId | "">("");
 
+  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const [filterSearch, setFilterSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+
+  const canDelete = (order: Order) => order.status !== "shipped";
+
+  const handleDeleteOrder = async (order: Order) => {
+    if (!confirm(`Excluir o pedido de "${order.customerName}"?\nEsta ação não pode ser desfeita.`)) return;
+    setDeletingOrderId(order.id);
+    try {
+      await deleteOrder(order.id);
+      setOrders(prev => prev?.filter(o => o.id !== order.id) ?? []);
+    } catch {
+      alert("Erro ao excluir pedido.");
+    } finally {
+      setDeletingOrderId(null);
+    }
+  };
+
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [editCustomerName, setEditCustomerName] = useState("");
   const [editCampaignCode, setEditCampaignCode] = useState("");
@@ -188,6 +207,16 @@ export default function OrdersPage() {
 
   const getStock = (productId: string) =>
     warehouse ? (stockMap.get(`${productId}__${warehouse}`) ?? 0) : null;
+
+  const filteredOrders = useMemo(() => {
+    if (!orders) return [];
+    return orders.filter(o => {
+      if (filterStatus !== "all" && o.status !== filterStatus) return false;
+      if (filterSearch && !o.customerName.toLowerCase().includes(filterSearch.toLowerCase())) return false;
+      return true;
+    });
+  }, [orders, filterSearch, filterStatus]);
+
   const [errors, setErrors] = useState<{customerName?: string, destinationCity?: string}>({});
   const [suggestions, setSuggestions] = useState<{id: string, name: string}[]>([]);
   const [ambiguousItems, setAmbiguousItems] = useState<{idx: number, query: string, options: {id: string, name: string}[]}[]>([]);
@@ -440,6 +469,31 @@ export default function OrdersPage() {
             </Card>
           ) : (
             <Card>
+              <div className="flex flex-col sm:flex-row gap-2 px-4 py-3 border-b border-slate-800">
+                <Input
+                  placeholder="Buscar cliente..."
+                  value={filterSearch}
+                  onChange={e => setFilterSearch(e.target.value)}
+                  className="sm:w-52 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500 h-9"
+                />
+                <Select value={filterStatus} onValueChange={v => setFilterStatus(v ?? "all")}>
+                  <SelectTrigger className="sm:w-44 bg-slate-900 border-slate-700 text-slate-200 h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os status</SelectItem>
+                    <SelectItem value="pending">Pendente</SelectItem>
+                    <SelectItem value="separating">Separando</SelectItem>
+                    <SelectItem value="closed">Fechado</SelectItem>
+                    <SelectItem value="shipped">Enviado</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-slate-500 text-sm self-center">
+                  {filteredOrders.length} pedido{filteredOrders.length !== 1 ? "s" : ""}
+                  {(filterSearch || filterStatus !== "all") && orders && orders.length !== filteredOrders.length
+                    ? ` de ${orders.length}` : ""}
+                </span>
+              </div>
               <CardContent className="p-0 overflow-x-auto hidden md:block">
                 <Table>
                   <TableHeader>
@@ -452,7 +506,7 @@ export default function OrdersPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {orders?.map(order => (
+                    {filteredOrders.map(order => (
                       <TableRow key={order.id}>
                         <TableCell className="text-slate-400">{format(order.createdAt, 'dd/MM HH:mm')}</TableCell>
                         <TableCell className="font-bold text-white">{order.customerName}</TableCell>
@@ -468,6 +522,16 @@ export default function OrdersPage() {
                               <Pencil className="h-4 w-4" />
                             </Button>
                           )}
+                          {canDelete(order) && (
+                            <Button
+                              size="sm" variant="ghost"
+                              disabled={deletingOrderId === order.id}
+                              onClick={() => handleDeleteOrder(order)}
+                              className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button size="sm" variant="ghost" disabled={loadingOrderId === order.id} onClick={() => openSeparationView(order)}>
                             {loadingOrderId === order.id ? "..." : order.status === 'pending' || order.status === 'separating' ? "Separar" : "Visualizar"}
                             <ChevronRight className="ml-2 h-4 w-4" />
@@ -475,10 +539,14 @@ export default function OrdersPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {(!orders || orders.length === 0) && (
+                    {filteredOrders.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={5} className="text-center py-8 text-slate-500">
-                          {orders === undefined ? "Carregando..." : "Nenhum pedido encontrado."}
+                          {orders === undefined
+                            ? "Carregando..."
+                            : (filterSearch || filterStatus !== "all")
+                              ? "Nenhum pedido corresponde à busca."
+                              : "Nenhum pedido encontrado."}
                         </TableCell>
                       </TableRow>
                     )}
@@ -493,7 +561,7 @@ export default function OrdersPage() {
                 )}
               </CardContent>
               <CardContent className="p-3 flex flex-col gap-3 md:hidden">
-                {orders?.map(order => (
+                {filteredOrders.map(order => (
                   <div key={order.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-900/50">
                     <div className="flex flex-col gap-1">
                       <span className="font-bold text-white text-sm">{order.customerName}</span>
@@ -508,6 +576,16 @@ export default function OrdersPage() {
                           <Pencil className="h-4 w-4" />
                         </Button>
                       )}
+                      {canDelete(order) && (
+                        <Button
+                          size="sm" variant="ghost"
+                          disabled={deletingOrderId === order.id}
+                          onClick={() => handleDeleteOrder(order)}
+                          className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" disabled={loadingOrderId === order.id} onClick={() => openSeparationView(order)}>
                         {loadingOrderId === order.id ? "..." : order.status === 'pending' || order.status === 'separating' ? "Separar" : "Ver"}
                         <ChevronRight className="ml-1 h-4 w-4" />
@@ -515,9 +593,13 @@ export default function OrdersPage() {
                     </div>
                   </div>
                 ))}
-                {(!orders || orders.length === 0) && (
+                {filteredOrders.length === 0 && (
                   <p className="text-center py-8 text-slate-500 text-sm">
-                    {orders === undefined ? "Carregando..." : "Nenhum pedido encontrado."}
+                    {orders === undefined
+                      ? "Carregando..."
+                      : (filterSearch || filterStatus !== "all")
+                        ? "Nenhum pedido corresponde à busca."
+                        : "Nenhum pedido encontrado."}
                   </p>
                 )}
                 {hasMore && (

@@ -3,20 +3,20 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useUserRole } from "@/lib/user-context";
-import { getOrdersForGallery } from "@/lib/supabase-db";
-import type { Order } from "@/lib/db";
+import { getOrdersForGallery, getShipments } from "@/lib/supabase-db";
+import type { Order, Shipment } from "@/lib/db";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { X } from "lucide-react";
 
 type PhotoEntry = {
-  orderId: string;
+  id: string;
   customerName: string;
   campaignCode: string;
   createdAt: number;
   photoUrl: string;
-  type: "item" | "packed";
+  type: "item" | "packed" | "receipt";
   itemName?: string;
   itemQty?: number;
 };
@@ -25,28 +25,31 @@ export default function GalleryPage() {
   const { isAdmin, profileLoaded } = useUserRole();
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
   const [loading, setLoading] = useState(true);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [filterCampaign, setFilterCampaign] = useState("all");
   const [filterCustomer, setFilterCustomer] = useState("");
-  const [filterType, setFilterType] = useState<"all" | "item" | "packed">("all");
+  const [filterType, setFilterType] = useState<"all" | "item" | "packed" | "receipt">("all");
 
   useEffect(() => {
     if (!profileLoaded) return;
     if (!isAdmin) { router.replace("/orders"); return; }
-    getOrdersForGallery()
-      .then(setOrders)
+    Promise.all([getOrdersForGallery(), getShipments()])
+      .then(([o, s]) => { setOrders(o); setShipments(s); })
       .catch(() => alert("Erro ao carregar galeria."))
       .finally(() => setLoading(false));
   }, [profileLoaded, isAdmin, router]);
 
   const allPhotos = useMemo<PhotoEntry[]>(() => {
     const entries: PhotoEntry[] = [];
+
+    // fotos de pedidos (itens separados + caixas embaladas)
     for (const order of orders) {
       for (const item of order.items) {
         if (item.photoUrl) {
           entries.push({
-            orderId: order.id,
+            id: `${order.id}-item-${item.productId}`,
             customerName: order.customerName,
             campaignCode: order.campaignCode,
             createdAt: order.createdAt,
@@ -59,7 +62,7 @@ export default function GalleryPage() {
       }
       if (order.packedPhotoUrl) {
         entries.push({
-          orderId: order.id,
+          id: `${order.id}-packed`,
           customerName: order.customerName,
           campaignCode: order.campaignCode,
           createdAt: order.createdAt,
@@ -68,8 +71,28 @@ export default function GalleryPage() {
         });
       }
     }
+
+    // comprovantes de envio
+    for (const shipment of shipments) {
+      const label = shipment.carrierName ?? shipment.pickupName ?? "Envio";
+      const detail = `${shipment.orderIds.length} ped.`;
+      for (let i = 0; i < (shipment.receiptPhotoUrls ?? []).length; i++) {
+        const url = shipment.receiptPhotoUrls![i];
+        entries.push({
+          id: `${shipment.id}-receipt-${i}`,
+          customerName: label,
+          campaignCode: detail,
+          createdAt: shipment.shippingDate,
+          photoUrl: url,
+          type: "receipt",
+        });
+      }
+    }
+
+    // mais recente primeiro
+    entries.sort((a, b) => b.createdAt - a.createdAt);
     return entries;
-  }, [orders]);
+  }, [orders, shipments]);
 
   const campaigns = useMemo(
     () => [...new Set(orders.map(o => o.campaignCode))].sort(),
@@ -78,9 +101,10 @@ export default function GalleryPage() {
 
   const filtered = useMemo(() => {
     return allPhotos.filter(p => {
-      if (filterCampaign !== "all" && p.campaignCode !== filterCampaign) return false;
-      if (filterCustomer && !p.customerName.toLowerCase().includes(filterCustomer.toLowerCase())) return false;
       if (filterType !== "all" && p.type !== filterType) return false;
+      // filtro de campanha só se aplica a fotos de pedidos
+      if (filterCampaign !== "all" && p.type !== "receipt" && p.campaignCode !== filterCampaign) return false;
+      if (filterCustomer && !p.customerName.toLowerCase().includes(filterCustomer.toLowerCase())) return false;
       return true;
     });
   }, [allPhotos, filterCampaign, filterCustomer, filterType]);
@@ -97,15 +121,15 @@ export default function GalleryPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl sm:text-3xl tracking-tight text-white">Galeria de Pedidos</h1>
-        <p className="text-slate-500">Visualize todas as fotos registradas nos pedidos finalizados.</p>
+        <p className="text-slate-500">Fotos de pedidos finalizados e comprovantes de envio.</p>
       </div>
 
       <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-start sm:items-center">
         <Input
-          placeholder="Buscar cliente..."
+          placeholder="Buscar cliente / transportadora..."
           value={filterCustomer}
           onChange={e => setFilterCustomer(e.target.value)}
-          className="sm:w-52 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
+          className="sm:w-64 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
         />
         <Select value={filterCampaign} onValueChange={v => setFilterCampaign(v ?? "all")}>
           <SelectTrigger className="sm:w-56 bg-slate-900 border-slate-700 text-slate-200">
@@ -116,14 +140,15 @@ export default function GalleryPage() {
             {campaigns.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select value={filterType} onValueChange={v => setFilterType(v as "all" | "item" | "packed")}>
-          <SelectTrigger className="sm:w-44 bg-slate-900 border-slate-700 text-slate-200">
+        <Select value={filterType} onValueChange={v => setFilterType(v as typeof filterType)}>
+          <SelectTrigger className="sm:w-52 bg-slate-900 border-slate-700 text-slate-200">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos os tipos</SelectItem>
             <SelectItem value="item">Itens separados</SelectItem>
             <SelectItem value="packed">Caixas embaladas</SelectItem>
+            <SelectItem value="receipt">Comprovantes de envio</SelectItem>
           </SelectContent>
         </Select>
         <span className="text-slate-500 text-sm">
@@ -139,16 +164,16 @@ export default function GalleryPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {filtered.map((entry, i) => (
+          {filtered.map((entry) => (
             <div
-              key={`${entry.orderId}-${entry.type}-${i}`}
+              key={entry.id}
               className="group cursor-pointer rounded-xl overflow-hidden border border-slate-800 bg-slate-900 hover:border-indigo-500/50 transition-colors"
               onClick={() => setPreviewUrl(entry.photoUrl)}
             >
               <div className="aspect-square overflow-hidden bg-slate-800">
                 <img
                   src={entry.photoUrl}
-                  alt={entry.type === "packed" ? "Caixa embalada" : entry.itemName}
+                  alt={entry.type === "receipt" ? "Comprovante de envio" : entry.type === "packed" ? "Caixa embalada" : entry.itemName}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                 />
               </div>
@@ -159,11 +184,15 @@ export default function GalleryPage() {
                   <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
                     entry.type === "packed"
                       ? "bg-emerald-500/15 text-emerald-400"
-                      : "bg-indigo-500/15 text-indigo-400"
+                      : entry.type === "receipt"
+                        ? "bg-amber-500/15 text-amber-400"
+                        : "bg-indigo-500/15 text-indigo-400"
                   }`}>
                     {entry.type === "packed"
                       ? "Embalado"
-                      : `${entry.itemQty}x ${entry.itemName?.split(" ").slice(0, 3).join(" ")}`}
+                      : entry.type === "receipt"
+                        ? "Comprovante"
+                        : `${entry.itemQty}x ${entry.itemName?.split(" ").slice(0, 3).join(" ")}`}
                   </span>
                   <span className="text-slate-600 text-[9px]">{format(entry.createdAt, "dd/MM/yy")}</span>
                 </div>

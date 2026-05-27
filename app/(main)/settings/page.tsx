@@ -17,7 +17,7 @@ const settingsItems = [
     to: "/products",
     icon: Package,
     label: "Catálogo",
-    description: "Gerencie produtos, preços e disponibilidade",
+    description: "Gerencie produtos e disponibilidade",
   },
   {
     to: "/gallery",

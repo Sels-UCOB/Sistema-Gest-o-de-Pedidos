@@ -31,6 +31,8 @@ export async function updateProduct(id: string, name: string): Promise<void> {
 }
 
 export async function deleteProduct(id: string): Promise<void> {
+  const { error: invError } = await supabase.from("inventory").delete().eq("product_id", id);
+  if (invError) throw invError;
   const { error } = await supabase.from("products").delete().eq("id", id);
   if (error) throw error;
 }
@@ -79,6 +81,16 @@ export async function getOrders(): Promise<Order[]> {
   return (data ?? []).map(mapOrderSlim);
 }
 
+export async function getClosedOrders(): Promise<Order[]> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("id, customer_name, campaign_code, destination_city, responsible, status, items, created_at, shipment_id")
+    .eq("status", "closed")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(mapOrderSlim);
+}
+
 export async function getOrdersPaged(page: number, pageSize = 25): Promise<{ orders: Order[]; hasMore: boolean }> {
   const from = page * pageSize;
   const { data, error } = await supabase
@@ -121,6 +133,11 @@ export async function addOrder(order: Omit<Order, "id" | "createdAt">): Promise<
     .single();
   if (error) throw error;
   return mapOrder(data);
+}
+
+export async function deleteOrder(id: string): Promise<void> {
+  const { error } = await supabase.from("orders").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export async function updateOrder(id: string, updates: Partial<Order>): Promise<void> {

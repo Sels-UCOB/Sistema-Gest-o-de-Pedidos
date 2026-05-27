@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Order, Shipment } from "@/lib/db";
-import { getOrders, getShipments, addShipment, updateOrder, updateShipment, appendReceiptPhoto } from "@/lib/supabase-db";
+import { getClosedOrders, getShipments, addShipment, updateOrder, updateShipment, appendReceiptPhoto } from "@/lib/supabase-db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -24,7 +24,7 @@ function withTimeout<T>(p: Promise<T>, ms = 12000): Promise<T> {
 }
 
 const CACHE_KEY_SHIPMENTS = "v1_shipments";
-const CACHE_KEY_ORDERS_SLIM = "v1_orders_slim";
+const CACHE_KEY_ORDERS_SLIM = "v1_orders_closed";
 
 function readCache<T>(key: string): { data: T; ts: number } | null {
   try {
@@ -65,7 +65,7 @@ export default function ShipmentsPage() {
 
   const loadOrders = useCallback(async () => {
     try {
-      const data = await withTimeout(getOrders());
+      const data = await withTimeout(getClosedOrders());
       setAllOrders(data);
       writeCache(CACHE_KEY_ORDERS_SLIM, data);
     } catch {
@@ -102,6 +102,17 @@ export default function ShipmentsPage() {
   }, [loadOrders, loadShipments, profileLoaded, refreshTick]);
 
   const closedOrders = allOrders?.filter(o => o.status === "closed") || [];
+
+  const [filterShip, setFilterShip] = useState("");
+
+  const filteredShipments = (shipments ?? []).filter(s => {
+    if (!filterShip) return true;
+    const q = filterShip.toLowerCase();
+    return (
+      (s.carrierName ?? "").toLowerCase().includes(q) ||
+      (s.pickupName ?? "").toLowerCase().includes(q)
+    );
+  });
 
   const [shippingType, setShippingType] = useState<"transportadora" | "presencial">("transportadora");
   const [carrierName, setCarrierName] = useState("");
@@ -230,6 +241,19 @@ export default function ShipmentsPage() {
           {cacheTs && (
             <p className="text-xs text-slate-500 mb-2">{formatAge(cacheTs)}</p>
           )}
+          <div className="flex flex-col sm:flex-row gap-2 mb-4 items-start sm:items-center">
+            <Input
+              placeholder="Buscar transportadora ou retirada..."
+              value={filterShip}
+              onChange={e => setFilterShip(e.target.value)}
+              className="sm:w-72 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500 h-9"
+            />
+            <span className="text-slate-500 text-sm self-center">
+              {filteredShipments.length} envio{filteredShipments.length !== 1 ? "s" : ""}
+              {filterShip && shipments && shipments.length !== filteredShipments.length
+                ? ` de ${shipments.length}` : ""}
+            </span>
+          </div>
           {loadError && (
             <div className="mb-4 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
               <p className="text-sm text-red-400">Falha ao carregar os dados. Verifique sua conexão.</p>
@@ -251,7 +275,7 @@ export default function ShipmentsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {shipments?.map(shipment => (
+                  {filteredShipments.map(shipment => (
                     <TableRow key={shipment.id}>
                       <TableCell>{format(shipment.shippingDate, 'dd/MM/yy')}</TableCell>
                       <TableCell>
@@ -278,10 +302,14 @@ export default function ShipmentsPage() {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {(!shipments || shipments.length === 0) && (
+                  {filteredShipments.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-8 text-slate-500">
-                        {shipments === undefined ? "Carregando..." : "Nenhum envio registrado."}
+                        {shipments === undefined
+                          ? "Carregando..."
+                          : filterShip
+                            ? "Nenhum envio corresponde à busca."
+                            : "Nenhum envio registrado."}
                       </TableCell>
                     </TableRow>
                   )}
@@ -289,7 +317,7 @@ export default function ShipmentsPage() {
               </Table>
             </CardContent>
             <CardContent className="p-3 flex flex-col gap-3 md:hidden">
-              {shipments?.map(shipment => (
+              {filteredShipments.map(shipment => (
                 <div key={shipment.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-900/50">
                   <div className="flex flex-col gap-1">
                     <span className="font-bold text-white text-sm">
@@ -314,9 +342,13 @@ export default function ShipmentsPage() {
                   </div>
                 </div>
               ))}
-              {(!shipments || shipments.length === 0) && (
+              {filteredShipments.length === 0 && (
                 <p className="text-center py-8 text-slate-500 text-sm">
-                  {shipments === undefined ? "Carregando..." : "Nenhum envio registrado."}
+                  {shipments === undefined
+                    ? "Carregando..."
+                    : filterShip
+                      ? "Nenhum envio corresponde à busca."
+                      : "Nenhum envio registrado."}
                 </p>
               )}
             </CardContent>
