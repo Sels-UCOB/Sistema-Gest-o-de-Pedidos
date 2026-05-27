@@ -2,8 +2,29 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Order, OrderItem, Product } from "@/lib/db";
-import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deleteOrder, deductInventoryStock, getInventory } from "@/lib/supabase-db";
+import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deleteOrder, deductInventoryStock, getInventory, uploadOrderPhoto } from "@/lib/supabase-db";
 import type { InventoryRow } from "@/lib/supabase-db";
+
+// ── Cache local (stale-while-revalidate) ─────────────────────────────────────
+const CK_ORDERS    = "v1_orders_list";
+const CK_PRODUCTS  = "v1_products";
+const CK_INVENTORY = "v1_inventory";
+
+function cacheRead<T>(key: string): T | null {
+  try { const r = localStorage.getItem(key); return r ? (JSON.parse(r).data as T) : null; } catch { return null; }
+}
+function cacheWrite<T>(key: string, data: T) {
+  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+}
+function cacheTsRead(key: string): number | null {
+  try { const r = localStorage.getItem(key); return r ? (JSON.parse(r).ts as number) : null; } catch { return null; }
+}
+function formatAge(ts: number): string {
+  const m = Math.floor((Date.now() - ts) / 60000);
+  if (m < 1) return "Atualizado agora";
+  if (m < 60) return `Atualizado há ${m} min`;
+  return `Atualizado há ${Math.floor(m / 60)}h`;
+}
 import { CAMPO_MAP, WAREHOUSES, WarehouseId } from "@/lib/campos";
 import { findBestMatch } from "@/lib/string-utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -35,10 +56,21 @@ export default function OrdersPage() {
   const [currentPage, setCurrentPage] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
+  const [cacheTs, setCacheTs] = useState<number | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [campaignCode, setCampaignCode] = useState("");
   const [destinationCity, setDestinationCity] = useState("");
   const [rawItems, setRawItems] = useState("");
+
+  // Restaura cache imediatamente (antes mesmo do login estar confirmado)
+  useEffect(() => {
+    const co = cacheRead<Order[]>(CK_ORDERS);
+    if (co) { setOrders(co); setCacheTs(cacheTsRead(CK_ORDERS)); }
+    const cp = cacheRead<Product[]>(CK_PRODUCTS);
+    if (cp) setProducts(cp);
+    const ci = cacheRead<InventoryRow[]>(CK_INVENTORY);
+    if (ci) setInventory(ci);
+  }, []);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -46,8 +78,10 @@ export default function OrdersPage() {
       setOrders(data);
       setHasMore(more);
       setCurrentPage(0);
+      cacheWrite(CK_ORDERS, data);
+      setCacheTs(Date.now());
     } catch {
-      setOrders([]);
+      setOrders(prev => prev ?? []);
       setHasMore(false);
     }
   }, []);
@@ -69,8 +103,12 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (!profileLoaded) return;
-    getProducts().then(setProducts).catch(() => setProducts([]));
-    getInventory().then(setInventory).catch(() => setInventory([]));
+    getProducts()
+      .then(data => { setProducts(data); cacheWrite(CK_PRODUCTS, data); })
+      .catch(() => setProducts(prev => prev ?? []));
+    getInventory()
+      .then(data => { setInventory(data); cacheWrite(CK_INVENTORY, data); })
+      .catch(() => setInventory(prev => prev ?? []));
     loadOrders();
   }, [loadOrders, profileLoaded, refreshTick]);
 
@@ -119,6 +157,7 @@ export default function OrdersPage() {
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [filterSearch, setFilterSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   const canDelete = (order: Order) => order.status !== "shipped";
 
@@ -127,9 +166,15 @@ export default function OrdersPage() {
     setDeletingOrderId(order.id);
     try {
       await deleteOrder(order.id);
-      setOrders(prev => prev?.filter(o => o.id !== order.id) ?? []);
-    } catch {
-      alert("Erro ao excluir pedido.");
+      // Atualiza estado E cache para que o refresh não traga o pedido de volta
+      setOrders(prev => {
+        const updated = (prev ?? []).filter(o => o.id !== order.id);
+        cacheWrite(CK_ORDERS, updated);
+        return updated;
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro ao excluir pedido.";
+      alert(msg);
     } finally {
       setDeletingOrderId(null);
     }
@@ -142,12 +187,23 @@ export default function OrdersPage() {
   const [editItems, setEditItems] = useState<OrderItem[]>([]);
   const [editSaving, setEditSaving] = useState(false);
 
-  const openEditOrder = (order: Order) => {
-    setEditingOrder(order);
-    setEditCustomerName(order.customerName);
-    setEditCampaignCode(order.campaignCode);
-    setEditDestinationCity(order.destinationCity);
-    setEditItems(order.items.map(i => ({ ...i })));
+  const openEditOrder = async (order: Order) => {
+    // Sempre carrega o pedido completo para preservar photoUrls dos itens já separados
+    try {
+      const full = await getOrderFull(order.id);
+      setEditingOrder(full);
+      setEditCustomerName(full.customerName);
+      setEditCampaignCode(full.campaignCode);
+      setEditDestinationCity(full.destinationCity);
+      setEditItems(full.items.map(i => ({ ...i })));
+    } catch {
+      // Fallback para o objeto slim se o fetch falhar
+      setEditingOrder(order);
+      setEditCustomerName(order.customerName);
+      setEditCampaignCode(order.campaignCode);
+      setEditDestinationCity(order.destinationCity);
+      setEditItems(order.items.map(i => ({ ...i })));
+    }
   };
 
   const handleSaveEditOrder = async () => {
@@ -359,37 +415,35 @@ export default function OrdersPage() {
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>, type: 'item' | 'packed') => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const base64 = ev.target?.result as string;
-      try {
-        if (type === 'item' && photoItemQueue && separatingOrder && photoItemIndex !== null) {
-          const newItems = separatingOrder.items.map((it, i) =>
-            i === photoItemIndex
-              ? { ...it, isSeparated: true, photoUrl: base64 }
-              : it
-          );
-          const updatedStatus = separatingOrder.status === 'pending' ? 'separating' : separatingOrder.status;
-          await updateOrder(separatingOrder.id, { items: newItems, status: updatedStatus });
-          setSeparatingOrder({ ...separatingOrder, items: newItems, status: updatedStatus });
-          setPhotoItemQueue(null);
-          setPhotoItemIndex(null);
-          if (newItems.every(i => i.isSeparated)) {
-            const packedData = { ...separatingOrder, items: newItems, status: updatedStatus };
-            setTimeout(() => { setPackedPhotoQueue(packedData); }, 300);
-          }
-        } else if (type === 'packed' && packedPhotoQueue) {
-          await updateOrder(packedPhotoQueue.id, { packedPhotoUrl: base64, status: "closed" });
-          localStorage.removeItem("active_separation_order_id");
-          setSeparatingOrder(null);
-          setPackedPhotoQueue(null);
-          await loadOrders();
+    setPhotoUploading(true);
+    try {
+      if (type === 'item' && photoItemQueue && separatingOrder && photoItemIndex !== null) {
+        const url = await uploadOrderPhoto(file, separatingOrder.id, 'item', photoItemQueue.productId);
+        const newItems = separatingOrder.items.map((it, i) =>
+          i === photoItemIndex ? { ...it, isSeparated: true, photoUrl: url } : it
+        );
+        const updatedStatus = separatingOrder.status === 'pending' ? 'separating' : separatingOrder.status;
+        await updateOrder(separatingOrder.id, { items: newItems, status: updatedStatus });
+        setSeparatingOrder({ ...separatingOrder, items: newItems, status: updatedStatus });
+        setPhotoItemQueue(null);
+        setPhotoItemIndex(null);
+        if (newItems.every(i => i.isSeparated)) {
+          const packedData = { ...separatingOrder, items: newItems, status: updatedStatus };
+          setTimeout(() => { setPackedPhotoQueue(packedData); }, 300);
         }
-      } catch {
-        alert("Erro ao salvar foto. Tente novamente.");
+      } else if (type === 'packed' && packedPhotoQueue) {
+        const url = await uploadOrderPhoto(file, packedPhotoQueue.id, 'packed');
+        await updateOrder(packedPhotoQueue.id, { packedPhotoUrl: url, status: "closed" });
+        localStorage.removeItem("active_separation_order_id");
+        setSeparatingOrder(null);
+        setPackedPhotoQueue(null);
+        await loadOrders();
       }
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      alert("Erro ao enviar foto. Verifique sua conexão e tente novamente.");
+    } finally {
+      setPhotoUploading(false);
+    }
   };
 
   const statusMap = {
@@ -401,11 +455,9 @@ export default function OrdersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl tracking-tight text-white">Gestão de Pedidos</h1>
-          <p className="text-slate-500">Crie, separe e acompanhe os pedidos.</p>
-        </div>
+      <div>
+        <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Gestão de Pedidos</h1>
+        <p className="text-slate-500 text-sm">Crie, separe e acompanhe os pedidos.</p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -429,23 +481,34 @@ export default function OrdersPage() {
               <CardContent>
                 <div className="space-y-4">
                   {separatingOrder.items.map((item, idx) => (
-                    <div key={idx} className="flex items-center space-x-4 p-4 border border-slate-800 rounded-lg bg-slate-900/50 shadow-sm">
+                    <div
+                      key={idx}
+                      className={`flex items-center gap-4 px-4 py-4 border rounded-xl transition-colors ${
+                        item.isSeparated
+                          ? "border-emerald-800/40 bg-emerald-900/10"
+                          : "border-slate-800 bg-slate-900/50"
+                      }`}
+                    >
                       <Checkbox
                         id={`item-${idx}`}
                         checked={item.isSeparated}
                         onCheckedChange={() => toggleSeparation(separatingOrder, idx)}
                         disabled={separatingOrder.status === 'closed' || separatingOrder.status === 'shipped'}
+                        className="h-6 w-6 shrink-0"
                       />
-                      <div className="flex-1">
-                        <label htmlFor={`item-${idx}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                          <span className="font-bold mr-2">{item.quantity}x</span>
+                      <label
+                        htmlFor={`item-${idx}`}
+                        className="flex-1 cursor-pointer select-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        <span className={`text-sm font-semibold leading-snug ${item.isSeparated ? "text-slate-400 line-through" : "text-white"}`}>
+                          <span className="text-indigo-400 mr-1.5">{item.quantity}×</span>
                           {item.name}
-                        </label>
-                        <p className="text-xs text-slate-500 mt-1">Cód: {item.productId}</p>
-                      </div>
+                        </span>
+                        <p className="text-[10px] text-slate-600 mt-0.5 hidden sm:block">{item.productId}</p>
+                      </label>
                       {item.photoUrl && (
                         <div
-                          className="h-10 w-10 border rounded overflow-hidden cursor-pointer hover:opacity-75 transition-opacity"
+                          className="h-12 w-12 border border-slate-700 rounded-lg overflow-hidden cursor-pointer hover:opacity-75 transition-opacity shrink-0"
                           onClick={() => setPreviewImageUrl(item.photoUrl!)}
                         >
                           <img src={item.photoUrl} alt="separado" className="object-cover w-full h-full" />
@@ -488,11 +551,16 @@ export default function OrdersPage() {
                     <SelectItem value="shipped">Enviado</SelectItem>
                   </SelectContent>
                 </Select>
-                <span className="text-slate-500 text-sm self-center">
-                  {filteredOrders.length} pedido{filteredOrders.length !== 1 ? "s" : ""}
-                  {(filterSearch || filterStatus !== "all") && orders && orders.length !== filteredOrders.length
-                    ? ` de ${orders.length}` : ""}
-                </span>
+                <div className="flex flex-col items-start sm:items-end self-center gap-0.5 ml-auto">
+                  <span className="text-slate-500 text-sm">
+                    {filteredOrders.length} pedido{filteredOrders.length !== 1 ? "s" : ""}
+                    {(filterSearch || filterStatus !== "all") && orders && orders.length !== filteredOrders.length
+                      ? ` de ${orders.length}` : ""}
+                  </span>
+                  {cacheTs && (
+                    <span className="text-slate-600 text-[10px]">{formatAge(cacheTs)}</span>
+                  )}
+                </div>
               </div>
               <CardContent className="p-0 overflow-x-auto hidden md:block">
                 <Table>
@@ -945,12 +1013,44 @@ export default function OrdersPage() {
       )}
 
       {(photoItemQueue || packedPhotoQueue) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className={`relative w-full max-w-sm mx-4 rounded-xl p-4 ${packedPhotoQueue ? 'bg-green-50 border border-green-200' : 'bg-white'}`}>
-            {packedPhotoQueue ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => {
+            setPhotoItemQueue(null);
+            setPhotoItemIndex(null);
+            setPackedPhotoQueue(null);
+          }}
+        >
+          <div
+            className={`relative w-full max-w-sm mx-4 rounded-xl p-4 ${packedPhotoQueue ? 'bg-green-50 border border-green-200' : 'bg-white'}`}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Botão fechar */}
+            <button
+              className={`absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full text-lg font-bold transition-colors ${
+                packedPhotoQueue
+                  ? 'text-green-700/60 hover:text-green-900 hover:bg-green-100'
+                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+              }`}
+              onClick={() => {
+                setPhotoItemQueue(null);
+                setPhotoItemIndex(null);
+                setPackedPhotoQueue(null);
+              }}
+            >
+              ✕
+            </button>
+
+            {photoUploading ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-3">
+                <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-slate-600 text-sm">Enviando foto...</p>
+              </div>
+            ) : packedPhotoQueue ? (
               <>
                 <h2 className="text-green-800 font-semibold text-base mb-1">Pedido Separado!</h2>
-                <p className="text-green-700 text-sm mb-4">Todos os itens foram separados. Agora tire uma foto das caixas fechadas para encerrar o pedido.</p>
+                <p className="text-green-700 text-sm mb-1">Todos os itens foram separados. Tire uma foto das caixas fechadas para encerrar o pedido.</p>
+                <p className="text-green-600/70 text-xs mb-4">Você pode adicionar a foto depois reabrindo o pedido.</p>
                 <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg bg-green-600 hover:bg-green-700 text-white cursor-pointer flex-col items-center gap-2 justify-center" })}>
                   <Package className="h-8 w-8 shrink-0" />
                   <span>Foto do Pedido Embalado</span>

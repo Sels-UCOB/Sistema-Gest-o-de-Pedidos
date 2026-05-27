@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Order, Shipment } from "@/lib/db";
-import { getClosedOrders, getShipments, addShipment, updateOrder, updateShipment, appendReceiptPhoto } from "@/lib/supabase-db";
+import { getClosedOrders, getShipments, addShipment, updateOrder, updateShipment, appendReceiptPhoto, uploadReceiptPhoto } from "@/lib/supabase-db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -192,6 +192,8 @@ export default function ShipmentsPage() {
       setPickupName("");
       setSelectedOrderIds([]);
       setActiveTab("list");
+      // Invalida o cache de pedidos para que a página de pedidos reflita os status atualizados
+      try { localStorage.removeItem("v1_orders_list"); } catch {}
       await loadShipments();
       await loadOrders();
     } catch (err) {
@@ -205,20 +207,15 @@ export default function ShipmentsPage() {
   const handleReceiptPhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeShipmentId) return;
-
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const base64 = ev.target?.result as string;
-      try {
-        await appendReceiptPhoto(activeShipmentId, base64);
-        await loadShipments();
-      } catch (err) {
-        console.error(err);
-        alert("Erro ao salvar comprovante.");
-      }
+    try {
+      const url = await uploadReceiptPhoto(file, activeShipmentId);
+      await appendReceiptPhoto(activeShipmentId, url);
+      await loadShipments();
       setActiveShipmentId(null);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao salvar comprovante. Verifique sua conexão e tente novamente.");
+    }
   };
 
 
@@ -226,7 +223,7 @@ export default function ShipmentsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
         <div>
-          <h1 className="text-2xl sm:text-3xl tracking-tight text-white">Gestão de Envios</h1>
+          <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Gestão de Envios</h1>
           <p className="text-slate-500">Agrupe pedidos e gere envios.</p>
         </div>
       </div>

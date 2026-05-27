@@ -256,7 +256,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           </div>
         </div>
 
-        {/* Bottom nav — mobile only, flex child so it never overlaps content */}
+        {/* Bottom nav — mobile only */}
         <nav className="shrink-0 flex md:hidden border-t border-slate-800 bg-slate-900/95 backdrop-blur-md" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           {navItems.map((item) => {
             const isActive = item.activeFor.some(p => pathname.startsWith(p));
@@ -265,12 +265,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                 key={item.to}
                 href={item.to}
                 className={cn(
-                  "flex-1 flex flex-col items-center gap-1 py-3 transition-colors",
+                  "flex-1 flex flex-col items-center gap-1 py-3.5 transition-colors active:bg-slate-800/60",
                   isActive ? "text-white" : "text-slate-500"
                 )}
               >
-                <item.icon className={cn("w-5 h-5", isActive && "text-indigo-400")} />
-                <span className="text-[10px] font-medium">{item.label}</span>
+                <item.icon className={cn("w-5 h-5", isActive ? "text-indigo-400" : "opacity-60")} />
+                <span className={cn("text-[10px] font-semibold tracking-wide", isActive ? "text-white" : "text-slate-500")}>
+                  {item.label}
+                </span>
               </Link>
             );
           })}

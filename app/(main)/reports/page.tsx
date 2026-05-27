@@ -86,7 +86,8 @@ export default function ReportsPage() {
     ? rows.filter(r => selectedIds.includes(r.order.id))
     : rows;
 
-  const hasFilters = startDate || endDate || campoFilter !== "ALL" || responsibleFilter !== "ALL";
+  const defaultEndDate = format(new Date(), "yyyy-MM-dd");
+  const hasFilters = !!startDate || endDate !== defaultEndDate || campoFilter !== "ALL" || responsibleFilter !== "ALL";
 
   const handlePrint = () => {
     const win = window.open("", "_blank");
@@ -184,8 +185,8 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl sm:text-3xl tracking-tight text-white">Relatórios</h1>
-        <p className="text-slate-500">Consulte e exporte o histórico de pedidos enviados.</p>
+        <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Relatórios</h1>
+        <p className="text-slate-500 text-sm">Consulte e exporte o histórico de pedidos enviados.</p>
       </div>
 
       {/* Filters */}

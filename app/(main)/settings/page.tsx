@@ -53,7 +53,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-lg font-semibold text-white">Configurações</h1>
+        <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Configurações</h1>
         <p className="text-sm text-slate-400 mt-1">Área administrativa do sistema</p>
       </div>
 

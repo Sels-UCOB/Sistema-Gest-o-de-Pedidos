@@ -218,16 +218,26 @@ export default function ProductsPage() {
 
   const saveEdit = async (id: string) => {
     if (!editName.trim()) return;
-    await updateProduct(id, editName.trim());
-    setEditingId(null);
-    await loadProducts();
+    try {
+      await updateProduct(id, editName.trim());
+      setEditingId(null);
+      await loadProducts();
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao salvar nome do produto.");
+    }
   };
 
   const handleDeleteProduct = async (id: string) => {
     if (confirm("Deseja realmente excluir este produto?")) {
-      await deleteProductDb(id);
-      await loadProducts();
-      await loadInventory();
+      try {
+        await deleteProductDb(id);
+        await loadProducts();
+        await loadInventory();
+      } catch (err) {
+        console.error(err);
+        alert("Erro ao excluir produto.");
+      }
     }
   };
 
@@ -262,32 +272,32 @@ export default function ProductsPage() {
   const selectedWarehouseLabel = WAREHOUSES.find(w => w.id === selectedWarehouse)?.label ?? "";
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl tracking-tight text-white">Catálogo de Produtos</h1>
-          <p className="text-slate-500">
+          <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Catálogo de Produtos</h1>
+          <p className="text-slate-500 text-sm">
             {isAdmin ? "Gerencie produtos e estoques por depósito." : "Consulte o catálogo e estoques disponíveis."}
           </p>
         </div>
         {isAdmin && (
-          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-            <Button variant="outline" onClick={() => setImportDialog(true)} className="w-full sm:w-auto">
+          <div className="flex flex-row gap-2 w-full sm:w-auto">
+            <Button variant="outline" onClick={() => setImportDialog(true)} className="flex-1 sm:flex-none sm:w-auto">
               <Upload className="mr-2 h-4 w-4" />
               Importar XLS
             </Button>
             {products && products.length > 0 && (
-              <Button variant="destructive" onClick={clearAll} className="w-full sm:w-auto">
-                Limpar Catálogo
+              <Button variant="destructive" onClick={clearAll} className="flex-1 sm:flex-none sm:w-auto">
+                Limpar
               </Button>
             )}
           </div>
         )}
       </div>
 
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-4">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-4">
         {isAdmin && (
-          <Card className="lg:col-span-1 border-slate-800 bg-slate-900/50">
+          <Card className="lg:col-span-1 border-slate-800 bg-slate-900/50 order-2 lg:order-1">
             <CardHeader>
               <CardTitle className="text-lg">Entrada de Material</CardTitle>
               <CardDescription>
@@ -352,7 +362,7 @@ export default function ProductsPage() {
           </Card>
         )}
 
-        <Card className={`${isAdmin ? "lg:col-span-3" : "lg:col-span-4"} border-slate-800 bg-slate-900/50`}>
+        <Card className={`${isAdmin ? "lg:col-span-3" : "lg:col-span-4"} border-slate-800 bg-slate-900/50 order-1 lg:order-2`}>
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -402,86 +412,123 @@ export default function ProductsPage() {
             {products === undefined ? (
               <div className="text-center py-12 text-slate-500">Carregando...</div>
             ) : productList.length > 0 ? (
-              <div className="rounded-md border max-h-[600px] overflow-y-auto overflow-x-auto">
-                <Table>
-                  <TableHeader className="bg-slate-800/50 sticky top-0">
-                    <TableRow>
-                      <TableHead className="w-[90px]">Código</TableHead>
-                      <TableHead>Nome</TableHead>
-                      <TableHead className="text-center w-[120px]">Estoque</TableHead>
-                      {isAdmin && <TableHead className="w-[80px] text-right">Ações</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredList.length === 0 ? (
+              <>
+                {/* ── Desktop: tabela ── */}
+                <div className="rounded-md border max-h-[600px] overflow-y-auto overflow-x-auto hidden md:block">
+                  <Table>
+                    <TableHeader className="bg-slate-800/50 sticky top-0">
                       <TableRow>
-                        <TableCell colSpan={isAdmin ? 4 : 3} className="text-center py-8 text-slate-500">
-                          Nenhum produto com estoque disponível em {selectedWarehouseLabel}.
-                        </TableCell>
+                        <TableHead className="w-[90px]">Código</TableHead>
+                        <TableHead>Nome</TableHead>
+                        <TableHead className="text-center w-[120px]">Estoque</TableHead>
+                        {isAdmin && <TableHead className="w-[80px] text-right">Ações</TableHead>}
                       </TableRow>
-                    ) : filteredList.map((p) => {
-                      const qty = selectedWarehouse ? getStock(p.id, selectedWarehouse) : 0;
-                      return (
-                        <TableRow key={p.id}>
-                          <TableCell className="font-mono text-xs text-slate-400">{p.id}</TableCell>
-                          <TableCell>
-                            {isAdmin && editingId === p.id ? (
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  value={editName}
-                                  onChange={(e) => setEditName(e.target.value)}
-                                  className="h-8"
-                                  autoFocus
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") saveEdit(p.id);
-                                    if (e.key === "Escape") setEditingId(null);
-                                  }}
-                                />
-                                <Button size="icon" variant="ghost" onClick={() => saveEdit(p.id)} className="h-8 w-8 text-green-600">
-                                  <Check className="h-4 w-4" />
-                                </Button>
-                                <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} className="h-8 w-8 text-slate-400">
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <span className="text-slate-200 text-sm">{p.name}</span>
-                            )}
+                    </TableHeader>
+                    <TableBody>
+                      {filteredList.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={isAdmin ? 4 : 3} className="text-center py-8 text-slate-500">
+                            Nenhum produto com estoque disponível em {selectedWarehouseLabel}.
                           </TableCell>
-                          <TableCell className="text-center p-2">
-                            <div className="inline-flex items-center justify-center gap-2">
-                              <span className={`text-sm tabular-nums ${qty === 0 ? "text-slate-600" : "text-slate-200 font-medium"}`}>
-                                {qty}
-                              </span>
-                              {isAdmin && selectedWarehouse && (
-                                <button
-                                  onClick={() => openStockDialog(p.id, p.name, selectedWarehouse)}
-                                  className="rounded p-0.5 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
-                                  title={`Adicionar estoque — ${selectedWarehouseLabel}`}
-                                >
-                                  <Plus className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </TableCell>
-                          {isAdmin && (
-                            <TableCell className="text-right p-2">
-                              <Button size="icon" variant="ghost" onClick={() => startEditing(p)} className="h-8 w-8 text-slate-400 hover:text-white">
-                                <Edit2 className="h-4 w-4" />
-                              </Button>
-                              <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(p.id)} className="h-8 w-8 text-red-500">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </TableCell>
-                          )}
                         </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                      ) : filteredList.map((p) => {
+                        const qty = selectedWarehouse ? getStock(p.id, selectedWarehouse) : 0;
+                        return (
+                          <TableRow key={p.id}>
+                            <TableCell className="font-mono text-xs text-slate-400">{p.id}</TableCell>
+                            <TableCell>
+                              {isAdmin && editingId === p.id ? (
+                                <div className="flex items-center gap-2">
+                                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} className="h-8" autoFocus
+                                    onKeyDown={(e) => { if (e.key === "Enter") saveEdit(p.id); if (e.key === "Escape") setEditingId(null); }} />
+                                  <Button size="icon" variant="ghost" onClick={() => saveEdit(p.id)} className="h-8 w-8 text-green-600"><Check className="h-4 w-4" /></Button>
+                                  <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} className="h-8 w-8 text-slate-400"><X className="h-4 w-4" /></Button>
+                                </div>
+                              ) : (
+                                <span className="text-slate-200 text-sm">{p.name}</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center p-2">
+                              <div className="inline-flex items-center justify-center gap-2">
+                                <span className={`text-sm tabular-nums ${qty === 0 ? "text-slate-600" : "text-slate-200 font-medium"}`}>{qty}</span>
+                                {isAdmin && selectedWarehouse && (
+                                  <button onClick={() => openStockDialog(p.id, p.name, selectedWarehouse)}
+                                    className="rounded p-0.5 text-indigo-400 hover:bg-indigo-500/20 transition-colors">
+                                    <Plus className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </TableCell>
+                            {isAdmin && (
+                              <TableCell className="text-right p-2">
+                                <Button size="icon" variant="ghost" onClick={() => startEditing(p)} className="h-8 w-8 text-slate-400 hover:text-white"><Edit2 className="h-4 w-4" /></Button>
+                                <Button size="icon" variant="ghost" onClick={() => handleDeleteProduct(p.id)} className="h-8 w-8 text-red-500"><Trash2 className="h-4 w-4" /></Button>
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* ── Mobile: cards ── */}
+                <div className="md:hidden space-y-2 max-h-[65vh] overflow-y-auto">
+                  {filteredList.length === 0 ? (
+                    <p className="text-center py-8 text-slate-500 text-sm">
+                      Nenhum produto com estoque disponível em {selectedWarehouseLabel}.
+                    </p>
+                  ) : filteredList.map((p) => {
+                    const qty = selectedWarehouse ? getStock(p.id, selectedWarehouse) : 0;
+                    return (
+                      <div key={p.id} className="flex items-center gap-3 px-3 py-3 rounded-xl border border-slate-800 bg-slate-900/40">
+                        <div className="flex-1 min-w-0">
+                          {isAdmin && editingId === p.id ? (
+                            <div className="flex items-center gap-2">
+                              <Input value={editName} onChange={e => setEditName(e.target.value)} className="h-9 text-sm flex-1" autoFocus
+                                onKeyDown={e => { if (e.key === "Enter") saveEdit(p.id); if (e.key === "Escape") setEditingId(null); }} />
+                              <Button size="icon" variant="ghost" onClick={() => saveEdit(p.id)} className="h-9 w-9 text-emerald-400 shrink-0"><Check className="h-4 w-4" /></Button>
+                              <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} className="h-9 w-9 shrink-0"><X className="h-4 w-4" /></Button>
+                            </div>
+                          ) : (
+                            <>
+                              <p className="font-medium text-white text-sm leading-snug">{p.name}</p>
+                              <p className="font-mono text-[10px] text-slate-500 mt-0.5">{p.id}</p>
+                            </>
+                          )}
+                        </div>
+                        {editingId !== p.id && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className={`text-sm font-bold tabular-nums w-8 text-center ${qty > 0 ? "text-emerald-400" : "text-slate-600"}`}>
+                              {qty}
+                            </span>
+                            {isAdmin && (
+                              <>
+                                {selectedWarehouse && (
+                                  <Button size="icon" variant="ghost" className="h-10 w-10 text-indigo-400"
+                                    onClick={() => openStockDialog(p.id, p.name, selectedWarehouse)}>
+                                    <Plus className="h-4 w-4" />
+                                  </Button>
+                                )}
+                                <Button size="icon" variant="ghost" className="h-10 w-10 text-slate-400"
+                                  onClick={() => startEditing(p)}>
+                                  <Edit2 className="h-4 w-4" />
+                                </Button>
+                                <Button size="icon" variant="ghost" className="h-10 w-10 text-red-500"
+                                  onClick={() => handleDeleteProduct(p.id)}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             ) : (
-              <div className="text-center py-12 text-slate-500">
+              <div className="text-center py-12 text-slate-500 text-sm">
                 {isAdmin
                   ? "Nenhum produto cadastrado. Importe um XLS ou adicione manualmente."
                   : "Nenhum produto cadastrado ainda."}

@@ -49,8 +49,8 @@ export default function AdminPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl sm:text-3xl tracking-tight text-white">Gerenciar Usuários</h1>
-        <p className="text-slate-500">Configure o campo e o perfil de cada operador.</p>
+        <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Gerenciar Usuários</h1>
+        <p className="text-slate-500 text-sm">Configure o campo e o perfil de cada operador.</p>
       </div>
 
       <Card className="border-slate-800 bg-slate-900/50">

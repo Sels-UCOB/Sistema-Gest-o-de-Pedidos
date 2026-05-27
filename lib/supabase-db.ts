@@ -82,25 +82,17 @@ export async function getOrders(): Promise<Order[]> {
 }
 
 export async function getClosedOrders(): Promise<Order[]> {
-  const { data, error } = await supabase
-    .from("orders")
-    .select("id, customer_name, campaign_code, destination_city, responsible, status, items, created_at, shipment_id")
-    .eq("status", "closed")
-    .order("created_at", { ascending: false });
+  const { data, error } = await supabase.rpc("get_closed_orders_slim");
   if (error) throw error;
-  return (data ?? []).map(mapOrderSlim);
+  return ((data ?? []) as Record<string, unknown>[]).map(mapOrderSlim);
 }
 
 export async function getOrdersPaged(page: number, pageSize = 25): Promise<{ orders: Order[]; hasMore: boolean }> {
-  const from = page * pageSize;
-  const { data, error } = await supabase
-    .from("orders")
-    .select("id, customer_name, campaign_code, destination_city, responsible, status, items, created_at, shipment_id")
-    .order("created_at", { ascending: false })
-    .range(from, from + pageSize);
+  const { data, error } = await supabase.rpc("get_orders_paged", { p_page: page, p_page_size: pageSize });
   if (error) throw error;
-  const hasMore = (data ?? []).length > pageSize;
-  return { orders: (data ?? []).slice(0, pageSize).map(mapOrderSlim), hasMore };
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const hasMore = rows.length > pageSize;
+  return { orders: rows.slice(0, pageSize).map(mapOrderSlim), hasMore };
 }
 
 export async function getOrderFull(id: string): Promise<Order> {
@@ -136,8 +128,12 @@ export async function addOrder(order: Omit<Order, "id" | "createdAt">): Promise<
 }
 
 export async function deleteOrder(id: string): Promise<void> {
-  const { error } = await supabase.from("orders").delete().eq("id", id);
+  const { error, count } = await supabase
+    .from("orders")
+    .delete({ count: "exact" })
+    .eq("id", id);
   if (error) throw error;
+  if ((count ?? 0) === 0) throw new Error("Pedido não encontrado ou sem permissão para excluir.");
 }
 
 export async function updateOrder(id: string, updates: Partial<Order>): Promise<void> {
@@ -154,14 +150,32 @@ export async function updateOrder(id: string, updates: Partial<Order>): Promise<
   if (error) throw error;
 }
 
-export async function getOrdersForGallery(): Promise<Order[]> {
-  const { data, error } = await supabase
-    .from("orders")
-    .select("id, customer_name, campaign_code, destination_city, status, items, packed_photo_url, created_at")
-    .in("status", ["closed", "shipped"])
-    .order("created_at", { ascending: false });
+export interface GalleryMetaRow {
+  id: string;
+  customer_name: string;
+  campaign_code: string;
+  created_at: number;
+  photo_type: "item" | "packed";
+  order_id: string;
+  product_id: string | null;
+  item_name: string | null;
+  item_qty: number | null;
+}
+
+export async function getGalleryMetadata(): Promise<GalleryMetaRow[]> {
+  const { data, error } = await supabase.rpc("get_gallery_metadata");
   if (error) throw error;
-  return (data ?? []).map(mapOrder);
+  return (data ?? []) as GalleryMetaRow[];
+}
+
+export async function getSinglePhoto(orderId: string, photoType: string, productId?: string | null): Promise<string | null> {
+  const { data, error } = await supabase.rpc("get_single_photo", {
+    p_order_id: orderId,
+    p_photo_type: photoType,
+    p_product_id: productId ?? null,
+  });
+  if (error) throw error;
+  return data as string | null;
 }
 
 // ─── Shipments ───────────────────────────────────────────────────────────────
@@ -325,6 +339,48 @@ export async function getProfiles(): Promise<ProfileRow[]> {
 export async function updateProfile(id: string, updates: Partial<Pick<ProfileRow, "role" | "campo" | "has_fiorino">>): Promise<void> {
   const { error } = await supabase.from("profiles").update(updates).eq("id", id);
   if (error) throw error;
+}
+
+// ─── Storage: Photo Upload ───────────────────────────────────────────────────
+
+/**
+ * Faz upload de uma foto de item/caixa para o Supabase Storage.
+ * Retorna a URL pública (curta) da imagem — nunca base64.
+ */
+export async function uploadOrderPhoto(
+  file: File,
+  orderId: string,
+  type: "item" | "packed",
+  productId?: string | null
+): Promise<string> {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+  const seg = productId ? `-${productId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)}` : "";
+  const path = `orders/${orderId}/${type}${seg}-${Date.now()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from("order-photos")
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (error) throw error;
+
+  const { data } = supabase.storage.from("order-photos").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+/**
+ * Faz upload de um comprovante de envio para o Supabase Storage.
+ * Retorna a URL pública da imagem.
+ */
+export async function uploadReceiptPhoto(file: File, shipmentId: string): Promise<string> {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+  const path = `receipts/${shipmentId}-${Date.now()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from("order-photos")
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (error) throw error;
+
+  const { data } = supabase.storage.from("order-photos").getPublicUrl(path);
+  return data.publicUrl;
 }
 
 // ─── Fiorino Plans ────────────────────────────────────────────────────────────
