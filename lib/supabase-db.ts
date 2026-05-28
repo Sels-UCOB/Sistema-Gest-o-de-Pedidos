@@ -54,6 +54,7 @@ function mapOrder(row: Record<string, unknown>): Order {
     destinationCity: row.destination_city as string,
     responsible: row.responsible as string,
     status: row.status as Order["status"],
+    tipo: ((row.tipo as string) === "acerto" ? "acerto" : "envio"),
     items: (row.items as OrderItem[]) ?? [],
     packedPhotoUrl: (row.packed_photo_url as string) ?? undefined,
     createdAt: row.created_at as number,
@@ -69,6 +70,7 @@ function mapOrderSlim(row: Record<string, unknown>): Order {
     destinationCity: row.destination_city as string,
     responsible: row.responsible as string,
     status: row.status as Order["status"],
+    tipo: ((row.tipo as string) === "acerto" ? "acerto" : "envio"),
     items: ((row.items as OrderItem[]) ?? []).map(it => ({ ...it, photoUrl: undefined })),
     createdAt: row.created_at as number,
     shipmentId: (row.shipment_id as string) ?? undefined,
@@ -81,14 +83,25 @@ export async function getOrders(): Promise<Order[]> {
   return (data ?? []).map(mapOrderSlim);
 }
 
+const SLIM_COLS = "id, customer_name, campaign_code, destination_city, responsible, status, tipo, items, created_at, shipment_id";
+
 export async function getClosedOrders(): Promise<Order[]> {
-  const { data, error } = await supabase.rpc("get_closed_orders_slim");
+  const { data, error } = await supabase
+    .from("orders")
+    .select(SLIM_COLS)
+    .eq("status", "closed")
+    .order("created_at", { ascending: false });
   if (error) throw error;
   return ((data ?? []) as Record<string, unknown>[]).map(mapOrderSlim);
 }
 
 export async function getOrdersPaged(page: number, pageSize = 25): Promise<{ orders: Order[]; hasMore: boolean }> {
-  const { data, error } = await supabase.rpc("get_orders_paged", { p_page: page, p_page_size: pageSize });
+  const from = page * pageSize;
+  const { data, error } = await supabase
+    .from("orders")
+    .select(SLIM_COLS)
+    .order("created_at", { ascending: false })
+    .range(from, from + pageSize);
   if (error) throw error;
   const rows = (data ?? []) as Record<string, unknown>[];
   const hasMore = rows.length > pageSize;
@@ -118,6 +131,7 @@ export async function addOrder(order: Omit<Order, "id" | "createdAt">): Promise<
       destination_city: order.destinationCity,
       responsible: order.responsible,
       status: order.status,
+      tipo: order.tipo ?? "envio",
       items: order.items,
       created_at: Date.now(),
     })
@@ -145,6 +159,7 @@ export async function updateOrder(id: string, updates: Partial<Order>): Promise<
   if (updates.customerName !== undefined) row.customer_name = updates.customerName;
   if (updates.campaignCode !== undefined) row.campaign_code = updates.campaignCode;
   if (updates.destinationCity !== undefined) row.destination_city = updates.destinationCity;
+  if (updates.tipo !== undefined) row.tipo = updates.tipo;
 
   const { error } = await supabase.from("orders").update(row).eq("id", id);
   if (error) throw error;

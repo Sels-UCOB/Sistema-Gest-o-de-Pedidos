@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useConfirm } from "@/hooks/use-confirm";
 import { Order, OrderItem, Product } from "@/lib/db";
 import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deleteOrder, deductInventoryStock, getInventory, uploadOrderPhoto } from "@/lib/supabase-db";
 import type { InventoryRow } from "@/lib/supabase-db";
@@ -26,7 +27,7 @@ function formatAge(ts: number): string {
   return `Atualizado há ${Math.floor(m / 60)}h`;
 }
 import { CAMPO_MAP, WAREHOUSES, WarehouseId } from "@/lib/campos";
-import { findBestMatch } from "@/lib/string-utils";
+import { findBestMatch, findTopMatches } from "@/lib/string-utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -35,14 +36,65 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Camera, Search, PlusCircle, ChevronRight, Package, Pencil, Trash2 } from "lucide-react";
+import { Camera, Search, PlusCircle, ChevronRight, Package, Pencil, Trash2, Wand2 } from "lucide-react";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUserRole } from "@/lib/user-context";
 
 
+// ── Parser de mensagens WPP ──────────────────────────────────────────────────
+
+type WppItem = { qty: number; rawText: string; matched: Product | null };
+
+// Palavras que indicam fim da lista de itens em mensagens informais
+const WPP_STOP_RE = /\s+(e\s+)?(?:enviar|mandar|entregar|para\s+\w|no\s+acerto|pelo\s+|por\s+gentileza|comprovante|obrigad|valeu|att\b|abs\b|aguardo|segue|favor\b|ok\b|destino|total|valor)/i;
+
+// Extrai pares {qty, rawText} de uma mensagem informal sem tentar casar produtos
+function extractFragments(text: string): { qty: number; rawText: string }[] {
+  if (!text.trim()) return [];
+
+  const numRe = /\b(\d+)\s+/g;
+  const positions: { qty: number; textStart: number; numStart: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = numRe.exec(text)) !== null) {
+    positions.push({ qty: parseInt(m[1]), textStart: m.index + m[0].length, numStart: m.index });
+  }
+  if (positions.length === 0) return [];
+
+  const results: { qty: number; rawText: string }[] = [];
+  for (let i = 0; i < positions.length; i++) {
+    const { qty, textStart } = positions[i];
+    const end = i + 1 < positions.length ? positions[i + 1].numStart : text.length;
+    let fragment = text.slice(textStart, end).trim();
+
+    const stopMatch = WPP_STOP_RE.exec(fragment);
+    if (stopMatch) fragment = fragment.slice(0, stopMatch.index);
+
+    fragment = fragment
+      .replace(/[,;!?.\s]+$/, "")
+      .replace(/\s+e\s*$/, "")
+      .replace(/^(?:combos?\s+(?:de\s+)?|unidades?\s+(?:de\s+)?|caixas?\s+(?:de\s+)?|exemplares?\s+(?:de\s+)?|volumes?\s+(?:de\s+)?)/i, "")
+      .replace(/^(?:da\s+|do\s+|de\s+|dos\s+|das\s+|um\s+|uma\s+)/i, "")
+      .trim();
+
+    if (fragment.length >= 2) results.push({ qty, rawText: fragment });
+  }
+  return results;
+}
+
+// Parser local completo (fallback quando IA não está disponível)
+function parseWppMessage(text: string, products: Product[]): WppItem[] {
+  if (products.length === 0) return [];
+  return extractFragments(text).map(f => ({
+    qty: f.qty,
+    rawText: f.rawText,
+    matched: findBestMatch(f.rawText, products),
+  }));
+}
+
 export default function OrdersPage() {
   const { displayName, isAdmin, campo, profileLoaded, refreshTick } = useUserRole();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const CAMPANHAS = useMemo(() => {
     const all = Object.keys(CAMPO_MAP).sort();
@@ -60,6 +112,7 @@ export default function OrdersPage() {
   const [customerName, setCustomerName] = useState("");
   const [campaignCode, setCampaignCode] = useState("");
   const [destinationCity, setDestinationCity] = useState("");
+  const [tipo, setTipo] = useState<"envio" | "acerto">("envio");
   const [rawItems, setRawItems] = useState("");
 
   // Restaura cache imediatamente (antes mesmo do login estar confirmado)
@@ -134,12 +187,13 @@ export default function OrdersPage() {
       setCampaignCode(f.campaignCode || '');
       setDestinationCity(f.destinationCity || '');
       setRawItems(f.rawItems || '');
+      if (f.tipo === 'acerto') setTipo('acerto');
     }
   }, []);
 
   useEffect(() => {
     localStorage.setItem('orderForm', JSON.stringify({
-      customerName, campaignCode, destinationCity, rawItems
+      customerName, campaignCode, destinationCity, rawItems, tipo
     }));
   }, [customerName, campaignCode, destinationCity, rawItems]);
 
@@ -157,12 +211,84 @@ export default function OrdersPage() {
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [filterSearch, setFilterSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterTipo, setFilterTipo] = useState("all");
   const [photoUploading, setPhotoUploading] = useState(false);
+
+  // ── WPP converter ──
+  const [wppText, setWppText] = useState("");
+  const [wppResult, setWppResult] = useState<WppItem[] | null>(null);
+  const [wppLoading, setWppLoading] = useState(false);
+  const [wppMode, setWppMode] = useState<"ai" | "local" | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+
+  const handleConvertWpp = async () => {
+    if (!products) return;
+    setWppLoading(true);
+    let usedAi = false;
+    try {
+      // Passo 1: extrai fragmentos localmente
+      const fragments = extractFragments(wppText);
+      if (fragments.length > 0) {
+        // Passo 2: top 8 candidatos por fragmento (pré-filtro local)
+        const withOptions = fragments.map(f => ({
+          qty: f.qty,
+          rawText: f.rawText,
+          options: findTopMatches(f.rawText, products, 8),
+        }));
+        const toSend = withOptions.filter(c => c.options.length > 0);
+
+        if (toSend.length > 0) {
+          // Passo 3: manda só os candidatos pré-filtrados para o Groq
+          const res = await fetch("/api/wpp-parse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: wppText, candidates: toSend }),
+          });
+          if (res.ok) {
+            const data = await res.json() as { items?: { qty: number; productName: string }[] };
+            if (data.items && data.items.length > 0) {
+              // Itens resolvidos pela IA + itens sem candidatos (não reconhecidos)
+              const aiResults: WppItem[] = data.items.map(item => ({
+                qty: item.qty,
+                rawText: item.productName,
+                matched: findBestMatch(item.productName, products),
+              }));
+              const noMatch: WppItem[] = withOptions
+                .filter(c => c.options.length === 0)
+                .map(f => ({ qty: f.qty, rawText: f.rawText, matched: null }));
+              setWppResult([...aiResults, ...noMatch]);
+              usedAi = true;
+            }
+          }
+        }
+      }
+    } catch { /* fallback abaixo */ }
+    if (!usedAi) setWppResult(parseWppMessage(wppText, products));
+    setWppMode(usedAi ? "ai" : "local");
+    setWppLoading(false);
+  };
+
+  const handleFillFromWpp = () => {
+    if (!wppResult) return;
+    const matched = wppResult.filter(r => r.matched);
+    if (matched.length === 0) return;
+    setParsedItems(matched.map(r => ({
+      productId: r.matched!.id,
+      name: r.matched!.name,
+      quantity: r.qty,
+      isSeparated: false,
+    })));
+    setAmbiguousItems([]);
+    setRawItems(matched.map(r => `${r.qty} - ${r.matched!.name}`).join("\n"));
+    setWppText("");
+    setWppResult(null);
+    setShowPreview(true);
+  };
 
   const canDelete = (order: Order) => order.status !== "shipped";
 
   const handleDeleteOrder = async (order: Order) => {
-    if (!confirm(`Excluir o pedido de "${order.customerName}"?\nEsta ação não pode ser desfeita.`)) return;
+    if (!await confirm(`Excluir o pedido de "${order.customerName}"?`, { description: "Esta ação não pode ser desfeita.", confirmLabel: "Excluir", destructive: true })) return;
     setDeletingOrderId(order.id);
     try {
       await deleteOrder(order.id);
@@ -268,16 +394,18 @@ export default function OrdersPage() {
     if (!orders) return [];
     return orders.filter(o => {
       if (filterStatus !== "all" && o.status !== filterStatus) return false;
+      if (filterTipo !== "all" && o.tipo !== filterTipo) return false;
       if (filterSearch && !o.customerName.toLowerCase().includes(filterSearch.toLowerCase())) return false;
       return true;
     });
-  }, [orders, filterSearch, filterStatus]);
+  }, [orders, filterSearch, filterStatus, filterTipo]);
 
   const [errors, setErrors] = useState<{customerName?: string, destinationCity?: string}>({});
   const [suggestions, setSuggestions] = useState<{id: string, name: string}[]>([]);
   const [ambiguousItems, setAmbiguousItems] = useState<{idx: number, query: string, options: {id: string, name: string}[]}[]>([]);
   const [manualSearch, setManualSearch] = useState<{idx: number} | null>(null);
   const [manualSearchResults, setManualSearchResults] = useState<{id: string, name: string}[]>([]);
+  const [expandedAmbiguous, setExpandedAmbiguous] = useState<Set<number>>(new Set());
 
   const handleParseItems = () => {
     if (!products) return;
@@ -325,8 +453,9 @@ export default function OrdersPage() {
 
     if (!nomeValido(customerName)) newErrors.customerName = "Mínimo 3 letras, sem números.";
     if (!nomeValido(destinationCity)) newErrors.destinationCity = "Mínimo 3 letras, sem números.";
-    if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
+    if (Object.keys(newErrors).length > 0) { setErrors(newErrors); setDialogError("Preencha o nome do cliente e a cidade de destino antes de confirmar."); return; }
     setErrors({});
+    setDialogError(null);
 
     if (!warehouse) { alert("Selecione o depósito de origem."); return; }
     if (parsedItems.length === 0) { alert("Adicione pelo menos um item ao pedido."); return; }
@@ -339,12 +468,8 @@ export default function OrdersPage() {
         const disp = stockMap.get(`${i.productId}__${warehouse}`) ?? 0;
         return `• ${i.name}: pedido ${i.quantity}, disponível ${disp}`;
       }).join("\n");
-      const ok = confirm(`Estoque insuficiente para:\n\n${lista}\n\nDeseja criar o pedido mesmo assim?`);
+      const ok = await confirm("Estoque insuficiente", { description: `Produtos sem saldo:\n\n${lista}\n\nDeseja criar mesmo assim?`, confirmLabel: "Criar mesmo assim" });
       if (!ok) return;
-    }
-    if (ambiguousItems.length > 0) {
-      alert("Existem itens com múltiplas opções. Selecione o produto correto para cada um antes de confirmar.");
-      return;
     }
     if (parsedItems.some(item => item.productId.startsWith('unknown-'))) {
       alert("Existem produtos não identificados. Revise os itens antes de confirmar.");
@@ -358,6 +483,7 @@ export default function OrdersPage() {
         destinationCity,
         responsible: displayName,
         status: "pending",
+        tipo,
         items: parsedItems,
       });
       try { await deductInventoryStock(parsedItems, warehouse); } catch (e) {
@@ -370,6 +496,7 @@ export default function OrdersPage() {
       setWarehouse("");
       setDestinationCity("");
       setRawItems("");
+      setTipo("envio");
       setParsedItems([]);
       setShowPreview(false);
       setActiveTab("list");
@@ -455,15 +582,17 @@ export default function OrdersPage() {
 
   return (
     <div className="space-y-6">
+      {confirmDialog}
       <div>
         <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Gestão de Pedidos</h1>
         <p className="text-slate-500 text-sm">Crie, separe e acompanhe os pedidos.</p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 md:w-[400px]">
+        <TabsList className="grid w-full grid-cols-3 md:w-[520px]">
           <TabsTrigger value="create">Criar</TabsTrigger>
-          <TabsTrigger value="list">Gerenciar</TabsTrigger>
+          <TabsTrigger value="wpp"><span className="hidden sm:inline">Via </span>WPP</TabsTrigger>
+          <TabsTrigger value="list"><span className="sm:hidden">Lista</span><span className="hidden sm:inline">Gerenciar</span></TabsTrigger>
         </TabsList>
 
         <TabsContent value="list" className="mt-6">
@@ -471,7 +600,12 @@ export default function OrdersPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle>Separando Pedido: {separatingOrder.customerName}</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    Separando Pedido: {separatingOrder.customerName}
+                    {separatingOrder.tipo === "acerto" && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 uppercase tracking-wider">Acerto</span>
+                    )}
+                  </CardTitle>
                   <CardDescription>
                     Campanha: {separatingOrder.campaignCode} | Destino: {separatingOrder.destinationCity}
                   </CardDescription>
@@ -540,7 +674,7 @@ export default function OrdersPage() {
                   className="sm:w-52 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500 h-9"
                 />
                 <Select value={filterStatus} onValueChange={v => setFilterStatus(v ?? "all")}>
-                  <SelectTrigger className="sm:w-44 bg-slate-900 border-slate-700 text-slate-200 h-9">
+                  <SelectTrigger className="w-full sm:w-44 bg-slate-900 border-slate-700 text-slate-200 h-9">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -549,6 +683,16 @@ export default function OrdersPage() {
                     <SelectItem value="separating">Separando</SelectItem>
                     <SelectItem value="closed">Fechado</SelectItem>
                     <SelectItem value="shipped">Enviado</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={filterTipo} onValueChange={v => setFilterTipo(v ?? "all")}>
+                  <SelectTrigger className="w-full sm:w-36 bg-slate-900 border-slate-700 text-slate-200 h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os tipos</SelectItem>
+                    <SelectItem value="envio">Envio Normal</SelectItem>
+                    <SelectItem value="acerto">Acerto</SelectItem>
                   </SelectContent>
                 </Select>
                 <div className="flex flex-col items-start sm:items-end self-center gap-0.5 ml-auto">
@@ -570,21 +714,29 @@ export default function OrdersPage() {
                       <TableHead>Cliente</TableHead>
                       <TableHead>Itens</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Ação</TableHead>
+                      <TableHead className="text-center">Ação</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredOrders.map(order => (
                       <TableRow key={order.id}>
                         <TableCell className="text-slate-400">{format(order.createdAt, 'dd/MM HH:mm')}</TableCell>
-                        <TableCell className="font-bold text-white">{order.customerName}</TableCell>
+                        <TableCell className="font-bold text-white">
+                          <div className="flex items-center gap-2">
+                            {order.customerName}
+                            {order.tipo === "acerto" && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 uppercase tracking-wider">Acerto</span>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-slate-300">{order.items.length} itens</TableCell>
                         <TableCell>
                           <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${order.status === 'pending' ? 'bg-slate-800 text-slate-400' : order.status === 'separating' ? 'bg-amber-500/10 text-amber-500' : order.status === 'closed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-indigo-500/10 text-indigo-400'}`}>
                             {statusMap[order.status].label}
                           </span>
                         </TableCell>
-                        <TableCell className="text-right flex items-center justify-end gap-1">
+                        <TableCell className="text-center">
+                          <div className="flex items-center justify-center gap-1">
                           {(order.status === 'pending' || order.status === 'separating') && (
                             <Button size="sm" variant="ghost" onClick={() => openEditOrder(order)}>
                               <Pencil className="h-4 w-4" />
@@ -604,6 +756,7 @@ export default function OrdersPage() {
                             {loadingOrderId === order.id ? "..." : order.status === 'pending' || order.status === 'separating' ? "Separar" : "Visualizar"}
                             <ChevronRight className="ml-2 h-4 w-4" />
                           </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -632,7 +785,12 @@ export default function OrdersPage() {
                 {filteredOrders.map(order => (
                   <div key={order.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-900/50">
                     <div className="flex flex-col gap-1">
-                      <span className="font-bold text-white text-sm">{order.customerName}</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-white text-sm">{order.customerName}</span>
+                        {order.tipo === "acerto" && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 uppercase tracking-wider">Acerto</span>
+                        )}
+                      </div>
                       <span className="text-xs text-slate-400">{order.items.length} itens · {format(order.createdAt, 'dd/MM HH:mm')}</span>
                       <span className={`mt-1 w-fit px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${order.status === 'pending' ? 'bg-slate-800 text-slate-400' : order.status === 'separating' ? 'bg-amber-500/10 text-amber-500' : order.status === 'closed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-indigo-500/10 text-indigo-400'}`}>
                         {statusMap[order.status].label}
@@ -688,6 +846,25 @@ export default function OrdersPage() {
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Tipo de Pedido</label>
+                    <div className="flex rounded-lg border border-slate-700 overflow-hidden h-10">
+                      <button
+                        type="button"
+                        onClick={() => setTipo("envio")}
+                        className={`flex-1 text-sm font-medium transition-colors ${tipo === "envio" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"}`}
+                      >
+                        Envio Normal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTipo("acerto")}
+                        className={`flex-1 text-sm font-medium transition-colors border-l border-slate-700 ${tipo === "acerto" ? "bg-amber-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"}`}
+                      >
+                        Acerto
+                      </button>
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Nome do Cliente</label>
                     <Input
@@ -765,6 +942,8 @@ export default function OrdersPage() {
                       onChange={e => {
                         setRawItems(e.target.value);
                         const lines = e.target.value.split("\n");
+                        // Múltiplas linhas preenchidas = colagem — sem autocomplete
+                        if (lines.filter(l => l.trim().length > 0).length > 1) { setSuggestions([]); return; }
                         const lastLine = lines[lines.length - 1].trim();
                         const match = lastLine.match(/^(\d+)(?:\s*[-xX]\s*|\s+)(.+)$/);
                         const searchStr = match ? match[2] : lastLine;
@@ -823,9 +1002,151 @@ export default function OrdersPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="wpp" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Converter Mensagem WPP</CardTitle>
+              <CardDescription>Cole a mensagem informal do WhatsApp e extraia os itens automaticamente.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Textarea
+                rows={6}
+                className="font-mono text-sm leading-relaxed"
+                placeholder={"Ex: Favor faturar 10 combos da vida e saúde e 5 bíblias para ABC!"}
+                value={wppText}
+                onChange={e => { setWppText(e.target.value); setWppResult(null); }}
+              />
+              <Button
+                onClick={handleConvertWpp}
+                disabled={!wppText.trim() || !products || wppLoading}
+              >
+                {wppLoading ? (
+                  <><div className="mr-2 h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />Analisando...</>
+                ) : (
+                  <><Wand2 className="mr-2 h-4 w-4" />Converter</>
+                )}
+              </Button>
+
+              {wppResult !== null && (
+                <div className="space-y-3 pt-3 border-t border-slate-800">
+                  {wppResult.length === 0 ? (
+                    <p className="text-sm text-slate-500 text-center py-4">
+                      Nenhum item encontrado. Verifique o texto e tente novamente.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs text-slate-500">
+                          {wppResult.filter(r => r.matched).length} de {wppResult.length} itens reconhecidos
+                        </p>
+                        {wppMode === "ai" && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">
+                            ✦ IA Groq
+                          </span>
+                        )}
+                        {wppMode === "local" && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-700/60 text-slate-500 border border-slate-700">
+                            Análise local
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        {wppResult.map((item, i) => (
+                          <div
+                            key={i}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${
+                              item.matched
+                                ? "border-emerald-800/40 bg-emerald-900/10"
+                                : "border-red-800/40 bg-red-900/10"
+                            }`}
+                          >
+                            <span className="text-slate-400 text-sm font-mono w-8 shrink-0 text-right">
+                              {item.qty}×
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              {item.matched ? (
+                                <p className="text-sm text-emerald-300 font-medium">{item.matched.name}</p>
+                              ) : (
+                                <p className="text-sm text-red-400">
+                                  {item.rawText}
+                                  <span className="text-slate-600 text-xs ml-1">— não encontrado</span>
+                                </p>
+                              )}
+                              {item.matched && item.rawText.toLowerCase() !== item.matched.name.toLowerCase() && (
+                                <p className="text-[10px] text-slate-600 mt-0.5 truncate">"{item.rawText}"</p>
+                              )}
+                            </div>
+                            <span className={`text-xs font-bold shrink-0 ${item.matched ? "text-emerald-500" : "text-red-500"}`}>
+                              {item.matched ? "✓" : "✗"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {wppResult.some(r => r.matched) && (
+                        <div className="pt-3 border-t border-slate-800 space-y-3">
+                          <p className="text-sm font-medium text-slate-300">Dados do pedido</p>
+                          <div className="flex rounded-lg border border-slate-700 overflow-hidden h-10">
+                            <button
+                              type="button"
+                              onClick={() => setTipo("envio")}
+                              className={`flex-1 text-sm font-medium transition-colors ${tipo === "envio" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"}`}
+                            >
+                              Envio Normal
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setTipo("acerto")}
+                              className={`flex-1 text-sm font-medium transition-colors border-l border-slate-700 ${tipo === "acerto" ? "bg-amber-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"}`}
+                            >
+                              Acerto
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <Input
+                              placeholder="Nome do cliente"
+                              value={customerName}
+                              onChange={e => { setCustomerName(e.target.value); setErrors(prev => ({...prev, customerName: undefined})); }}
+                              className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
+                            />
+                            <Input
+                              placeholder="Cidade de destino"
+                              value={destinationCity}
+                              onChange={e => { setDestinationCity(e.target.value); setErrors(prev => ({...prev, destinationCity: undefined})); }}
+                              className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
+                            />
+                            <Select value={campaignCode} onValueChange={v => { setCampaignCode(v || ""); setWarehouse(""); }}>
+                              <SelectTrigger className="bg-slate-900 border-slate-700 text-slate-200">
+                                <SelectValue placeholder="Campanha..." />
+                              </SelectTrigger>
+                              <SelectContent>{CAMPANHAS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                            </Select>
+                            <Select value={warehouse} onValueChange={v => setWarehouse(v as WarehouseId)} disabled={!campaignCode}>
+                              <SelectTrigger className="bg-slate-900 border-slate-700 text-slate-200">
+                                <SelectValue placeholder={campaignCode ? "Depósito..." : "Campanha primeiro"} />
+                              </SelectTrigger>
+                              <SelectContent>{warehouseOptions.map(w => <SelectItem key={w.id} value={w.id}>{w.label}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                          {(errors.customerName || errors.destinationCity) && (
+                            <p className="text-red-400 text-xs">{errors.customerName || errors.destinationCity}</p>
+                          )}
+                          <Button className="w-full" onClick={handleFillFromWpp}>
+                            <PlusCircle className="mr-2 h-4 w-4" />
+                            Criar Pedido com estes itens
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
-      <Dialog open={showPreview} onOpenChange={(open) => { setShowPreview(open); if (!open) { setManualSearch(null); setManualSearchResults([]); } }}>
+      <Dialog open={showPreview} onOpenChange={(open) => { setShowPreview(open); if (!open) { setManualSearch(null); setManualSearchResults([]); setExpandedAmbiguous(new Set()); } }}>
         <DialogContent className="max-w-md border-slate-800 bg-slate-900">
           <DialogHeader>
             <DialogTitle className="text-white">Validar Itens do Pedido</DialogTitle>
@@ -834,50 +1155,57 @@ export default function OrdersPage() {
           <div className="max-h-[300px] overflow-y-auto space-y-2">
             {parsedItems.filter(item => !item.productId.startsWith('unknown-')).length > 0 && (
               <div className="space-y-2">
-                <p className="text-green-400 text-sm font-medium"> Produtos encontrados:</p>
-                {parsedItems.map((item, idx) => !item.productId.startsWith('unknown-') && (
-                  <div key={idx} className="bg-slate-800 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
-                    <span className="text-white font-bold text-sm">{item.quantity}x</span>
-                    <span className="text-slate-200 text-sm flex-1">{item.name}</span>
-                    {(() => {
-                      const disp = getStock(item.productId);
-                      if (disp === null) return null;
-                      const ok = disp >= item.quantity;
-                      return (
-                        <span className={`text-xs font-mono ${ok ? "text-emerald-400" : "text-red-400"}`}>
-                          {disp} em estoque
-                        </span>
-                      );
-                    })()}
-                  </div>
-                ))}
-              </div>
-            )}
-            {ambiguousItems.length > 0 && (
-              <div className="mt-4 space-y-3">
-                <p className="text-yellow-400 text-sm font-medium">Produtos com múltiplas opções — escolha o correto:</p>
-                {ambiguousItems.map((amb) => (
-                  <div key={amb.idx} className="bg-slate-800 p-3 rounded-lg border border-yellow-500/30">
-                    <p className="text-slate-400 text-xs mb-2">Digitado: <span className="text-white">{amb.query}</span></p>
-                    <div className="space-y-1">
-                      {amb.options.map(opt => (
-                        <button
-                          key={opt.id}
-                          className="w-full text-left px-3 py-2 rounded text-sm hover:bg-indigo-600 text-slate-200 border border-slate-700"
-                          onClick={() => {
-                            const newItems = [...parsedItems];
-                            newItems[amb.idx] = { ...newItems[amb.idx], productId: opt.id, name: opt.name };
-                            setParsedItems(newItems);
-                            setAmbiguousItems(prev => prev.filter(a => a.idx !== amb.idx));
-                          }}
-                        >
-                          <span className="text-slate-400 font-mono text-xs mr-2">{opt.id}</span>
-                          {opt.name}
-                        </button>
-                      ))}
+                <p className="text-green-400 text-sm font-medium">Produtos encontrados:</p>
+                {parsedItems.map((item, idx) => {
+                  if (item.productId.startsWith('unknown-')) return null;
+                  const amb = ambiguousItems.find(a => a.idx === idx);
+                  const isExpanded = expandedAmbiguous.has(idx);
+                  return (
+                    <div key={idx} className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+                      <div className="p-2 flex items-center gap-2">
+                        <span className="text-white font-bold text-sm">{item.quantity}x</span>
+                        <span className="text-slate-200 text-sm flex-1">{item.name}</span>
+                        {(() => {
+                          const disp = getStock(item.productId);
+                          if (disp === null) return null;
+                          const ok = disp >= item.quantity;
+                          return <span className={`text-xs font-mono ${ok ? "text-emerald-400" : "text-red-400"}`}>{disp} em estoque</span>;
+                        })()}
+                        {amb && (
+                          <button
+                            className="text-xs text-yellow-400 border border-yellow-500/40 rounded px-1.5 py-0.5 hover:bg-yellow-500/10 transition-colors shrink-0"
+                            onClick={() => setExpandedAmbiguous(prev => {
+                              const next = new Set(prev);
+                              if (next.has(idx)) next.delete(idx); else next.add(idx);
+                              return next;
+                            })}
+                          >
+                            {amb.options.length} opções
+                          </button>
+                        )}
+                      </div>
+                      {amb && isExpanded && (
+                        <div className="border-t border-slate-700 p-2 space-y-1 bg-slate-900/50">
+                          <p className="text-[10px] text-slate-500 mb-1">Digitado: "{amb.query}" — toque para escolher outra opção</p>
+                          {amb.options.map(opt => (
+                            <button
+                              key={opt.id}
+                              className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${item.productId === opt.id ? "bg-indigo-600 text-white" : "hover:bg-indigo-600/40 text-slate-200 border border-slate-700"}`}
+                              onClick={() => {
+                                const newItems = [...parsedItems];
+                                newItems[idx] = { ...newItems[idx], productId: opt.id, name: opt.name };
+                                setParsedItems(newItems);
+                                setExpandedAmbiguous(prev => { const next = new Set(prev); next.delete(idx); return next; });
+                              }}
+                            >
+                              <span className="text-slate-400 font-mono mr-1">{opt.id}</span> {opt.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
             {parsedItems.filter(item => item.productId.startsWith('unknown-')).length > 0 && (
@@ -924,8 +1252,11 @@ export default function OrdersPage() {
               </div>
             )}
           </div>
+          {dialogError && (
+            <p className="text-red-400 text-xs text-center px-1 -mb-2">{dialogError}</p>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPreview(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => { setShowPreview(false); setDialogError(null); }}>Cancelar</Button>
             <Button onClick={handleCreateOrder} disabled={!profileLoaded}>
               <PlusCircle className="mr-2 h-4 w-4" /> Confirmar Pedido
             </Button>

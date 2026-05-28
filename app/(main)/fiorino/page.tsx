@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useConfirm } from "@/hooks/use-confirm";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { X, RotateCcw, Save, Upload, Trash2 } from "lucide-react";
@@ -13,19 +14,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useUserRole } from "@/lib/user-context";
 import { getFiorinoPlans, addFiorinoPlan, deleteFiorinoPlan } from "@/lib/supabase-db";
 import type { FiorinoPlan } from "@/lib/db";
-import type { PlacedBox } from "./viewer";
-import { getBoxConfig } from "./viewer";
+import type { PlacedBox, BoxType, BoxOrientation } from "./viewer";
+import { getBoxDimsM, CARGO, ARCH_LEFT, ARCH_RIGHT } from "./viewer";
 
 const FiorinoViewer = dynamic(() => import("./viewer"), { ssr: false });
 
-type BoxSize = PlacedBox["size"];
-type Orientation = PlacedBox["orientation"];
-
-const COLS = 4;
-const ROWS = 6;
-const LEVELS = 4;
-const TOTAL_CELLS = COLS * ROWS * LEVELS;
-const COL_LABELS = ["A", "B", "C", "D"];
+type Orientation = BoxOrientation;
 
 const BOX_COLORS = [
   "#6366f1", "#f59e0b", "#10b981", "#ef4444",
@@ -33,203 +27,174 @@ const BOX_COLORS = [
   "#ec4899", "#84cc16", "#06b6d4", "#a78bfa",
 ];
 
-const SIZE_LABELS: Record<BoxSize, string> = { P: "Pequeno", M: "Médio", G: "Grande" };
+const SIZE_LABELS: Record<BoxType, string> = {
+  PA: "Peq A", MA: "Méd A", MB: "Méd B", G: "Grande",
+};
+
+// Available volume in m³ (operational height, minus wheel arches)
+const ARCH_VOL =
+  ARCH_LEFT.w  * Math.min(ARCH_LEFT.hMax,  CARGO.opHeight) * ARCH_LEFT.d +
+  ARCH_RIGHT.w * Math.min(ARCH_RIGHT.hMax, CARGO.opHeight) * ARCH_RIGHT.d;
+const TOTAL_VOLUME = CARGO.width * CARGO.opHeight * CARGO.length - ARCH_VOL;
 
 let colorIndex = 0;
-function nextColor() {
-  const c = BOX_COLORS[colorIndex % BOX_COLORS.length];
-  colorIndex++;
-  return c;
+function nextColor() { return BOX_COLORS[colorIndex++ % BOX_COLORS.length]; }
+
+// XZ-plane AABB overlap test
+function overlapsXZ(
+  ax: number, az: number, aw: number, ad: number,
+  bx: number, bz: number, bw: number, bd: number,
+): boolean {
+  return ax < bx + bw && ax + aw > bx && az < bz + bd && az + ad > bz;
 }
 
-function cellKey(col: number, row: number, level: number) { return `${col},${row},${level}`; }
-
-function buildOccupation(boxes: PlacedBox[]): Record<string, string> {
-  const map: Record<string, string> = {};
+// Lowest Y at which a box with the given XZ footprint can rest (stacks on arches + existing boxes)
+function findStackY(x: number, z: number, w: number, d: number, boxes: PlacedBox[]): number {
+  let y = 0;
+  if (overlapsXZ(x, z, w, d, ARCH_LEFT.x,  ARCH_LEFT.z,  ARCH_LEFT.w,  ARCH_LEFT.d))
+    y = Math.max(y, ARCH_LEFT.hMax);
+  if (overlapsXZ(x, z, w, d, ARCH_RIGHT.x, ARCH_RIGHT.z, ARCH_RIGHT.w, ARCH_RIGHT.d))
+    y = Math.max(y, ARCH_RIGHT.hMax);
   for (const box of boxes) {
-    const cfg = getBoxConfig(box.size, box.orientation);
-    for (let dc = 0; dc < cfg.cols; dc++)
-      for (let dr = 0; dr < cfg.rows; dr++)
-        for (let dl = 0; dl < cfg.levels; dl++)
-          map[cellKey(box.col + dc, box.row + dr, box.level + dl)] = box.id;
+    const { w: bw, h: bh, d: bd } = getBoxDimsM(box.size, box.orientation);
+    if (overlapsXZ(x, z, w, d, box.x, box.z, bw, bd))
+      y = Math.max(y, box.y + bh);
   }
-  return map;
+  return y;
 }
 
-function isOutOfBounds(col: number, row: number, size: BoxSize, orientation: Orientation) {
-  const cfg = getBoxConfig(size, orientation);
-  return col + cfg.cols > COLS || row + cfg.rows > ROWS;
+// Check compartment bounds + operational height limit
+function canPlace(x: number, y: number, z: number, w: number, h: number, d: number): boolean {
+  return x >= -0.001 && x + w <= CARGO.width  + 0.001
+      && z >= -0.001 && z + d <= CARGO.length + 0.001
+      && y + h <= CARGO.opHeight + 0.001;
 }
 
-function getAutoLevel(
-  col: number, row: number, size: BoxSize, orientation: Orientation,
-  occupation: Record<string, string>
-): number | null {
-  const cfg = getBoxConfig(size, orientation);
-  for (let startLevel = 0; startLevel <= LEVELS - cfg.levels; startLevel++) {
-    let ok = true;
-    outer: for (let dc = 0; dc < cfg.cols; dc++)
-      for (let dr = 0; dr < cfg.rows; dr++)
-        for (let dl = 0; dl < cfg.levels; dl++)
-          if (occupation[cellKey(col + dc, row + dr, startLevel + dl)]) { ok = false; break outer; }
-    if (ok) return startLevel;
-  }
-  return null;
-}
-
-function boxColorAt(
-  col: number, row: number, level: number,
-  occupation: Record<string, string>, boxes: PlacedBox[]
+// ── 2-D top-down floor plan ──────────────────────────────────────────────────
+function drawFloorPlan(
+  canvas: HTMLCanvasElement,
+  boxes: PlacedBox[],
+  hover: { x: number; z: number } | null,
+  selectedSize: BoxType,
+  orientation: Orientation,
 ) {
-  const id = occupation[cellKey(col, row, level)];
-  return id ? (boxes.find(b => b.id === id)?.color ?? null) : null;
+  const ctx = canvas.getContext("2d");
+  if (!ctx || canvas.width === 0 || canvas.height === 0) return;
+
+  const CW = canvas.width, CH = canvas.height;
+  const PAD = 10;
+  const aW = CW - PAD * 2;
+  const aH = CH - PAD * 2;
+  const sX = aW / CARGO.width;
+  const sZ = aH / CARGO.length;
+
+  const px = (m: number) => PAD + m * sX;
+  const pz = (m: number) => PAD + m * sZ;
+
+  ctx.clearRect(0, 0, CW, CH);
+
+  // Compartment fill
+  ctx.fillStyle = "#0f172a";
+  ctx.fillRect(PAD, PAD, aW, aH);
+
+  // Wheel arches — cross-hatched
+  for (const arch of [ARCH_LEFT, ARCH_RIGHT]) {
+    const ax = px(arch.x), az = pz(arch.z);
+    const aw = arch.w * sX, ad = arch.d * sZ;
+    ctx.fillStyle = "#1e293b";
+    ctx.fillRect(ax, az, aw, ad);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ax, az, aw, ad);
+    ctx.clip();
+    ctx.strokeStyle = "#334155";
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    for (let t = -ad; t < aw + ad; t += 6) {
+      ctx.moveTo(ax + t,      az);
+      ctx.lineTo(ax + t + ad, az + ad);
+    }
+    ctx.stroke();
+    ctx.restore();
+    ctx.strokeStyle = "#475569";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ax, az, aw, ad);
+  }
+
+  // Compartment outline
+  ctx.strokeStyle = "#475569";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(PAD, PAD, aW, aH);
+
+  // Door indicator (rear = bottom)
+  ctx.strokeStyle = "#64748b";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(PAD, PAD + aH);
+  ctx.lineTo(PAD + aW, PAD + aH);
+  ctx.stroke();
+
+  // Direction labels
+  ctx.fillStyle = "#475569";
+  ctx.font = "9px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("CAB", CW / 2, PAD / 2 + 1);
+  ctx.fillText("PORTA", CW / 2, CH - PAD / 2 - 1);
+
+  // Placed boxes (XZ footprint)
+  for (const box of boxes) {
+    const { w: bw, d: bd } = getBoxDimsM(box.size, box.orientation);
+    const bpx = px(box.x), bpz = pz(box.z), bpw = bw * sX, bph = bd * sZ;
+    ctx.fillStyle = box.color + "cc";
+    ctx.fillRect(bpx, bpz, bpw, bph);
+    ctx.strokeStyle = box.color;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(bpx, bpz, bpw, bph);
+    if (bpw > 18 && bph > 10) {
+      ctx.fillStyle = "#fff";
+      ctx.font = `bold ${Math.min(10, Math.floor(bph * 0.42))}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const lbl = box.label.length > 9 ? box.label.slice(0, 8) + "…" : box.label;
+      ctx.fillText(lbl, bpx + bpw / 2, bpz + bph / 2);
+    }
+  }
+
+  // Hover ghost
+  if (hover) {
+    const { w: bw, h: bh, d: bd } = getBoxDimsM(selectedSize, orientation);
+    const cx = Math.max(0, Math.min(CARGO.width  - bw, hover.x - bw / 2));
+    const cz = Math.max(0, Math.min(CARGO.length - bd, hover.z - bd / 2));
+    const y  = findStackY(cx, cz, bw, bd, boxes);
+    const ok = canPlace(cx, y, cz, bw, bh, bd);
+    const gx = px(cx), gz = pz(cz), gw = bw * sX, gh = bd * sZ;
+    ctx.fillStyle = ok ? "rgba(99,102,241,0.30)" : "rgba(239,68,68,0.30)";
+    ctx.fillRect(gx, gz, gw, gh);
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = ok ? "#818cf8" : "#f87171";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(gx, gz, gw, gh);
+    ctx.setLineDash([]);
+    if (ok && gh > 12 && gw > 24) {
+      ctx.fillStyle = "#818cf8";
+      ctx.font = "8px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(y > 0.01 ? `+${y.toFixed(2)}m` : "chão", gx + gw / 2, gz + gh / 2);
+    }
+  }
 }
 
-export default function FiorinoPage() {
-  const { isAdmin, hasFiorino, profileLoaded } = useUserRole();
-  const router = useRouter();
+// ── UI helpers ───────────────────────────────────────────────────────────────
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{children}</p>;
+}
 
-  // ── Route guard ──
-  useEffect(() => {
-    if (!profileLoaded) return;
-    if (!isAdmin && !hasFiorino) router.replace("/orders");
-  }, [profileLoaded, isAdmin, hasFiorino, router]);
-
-  // ── Posicionador ──
-  const [boxes, setBoxes] = useState<PlacedBox[]>([]);
-  const [selectedSize, setSelectedSize] = useState<BoxSize>("P");
-  const [orientation, setOrientation] = useState<Orientation>("vertical");
-  const [viewLevel, setViewLevel] = useState(0);
-  const [selectedCell, setSelectedCell] = useState<{ col: number; row: number } | null>(null);
-  const [boxLabel, setBoxLabel] = useState("");
-
-  // ── Salvar plano ──
-  const [saveOpen, setSaveOpen] = useState(false);
-  const [saveDate, setSaveDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [saveType, setSaveType] = useState("entrega");
-  const [saveCampaignCode, setSaveCampaignCode] = useState("");
-  const [saveNotes, setSaveNotes] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  // ── Histórico ──
-  const [plans, setPlans] = useState<FiorinoPlan[]>([]);
-  const [plansLoading, setPlansLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState("posicionar");
-
-  const occupation = useMemo(() => buildOccupation(boxes), [boxes]);
-  const occupancyPct = Math.round((Object.keys(occupation).length / TOTAL_CELLS) * 100);
-
-  const autoLevel = useMemo(() => {
-    if (!selectedCell) return null;
-    if (isOutOfBounds(selectedCell.col, selectedCell.row, selectedSize, orientation)) return null;
-    return getAutoLevel(selectedCell.col, selectedCell.row, selectedSize, orientation, occupation);
-  }, [selectedCell, selectedSize, orientation, occupation]);
-
-  const previewKeys = useMemo(() => {
-    if (!selectedCell || autoLevel === null) return new Set<string>();
-    const cfg = getBoxConfig(selectedSize, orientation);
-    const keys = new Set<string>();
-    for (let dc = 0; dc < cfg.cols; dc++)
-      for (let dr = 0; dr < cfg.rows; dr++)
-        for (let dl = 0; dl < cfg.levels; dl++)
-          if (autoLevel + dl === viewLevel)
-            keys.add(cellKey(selectedCell.col + dc, selectedCell.row + dr, viewLevel));
-    return keys;
-  }, [selectedCell, selectedSize, orientation, autoLevel, viewLevel]);
-
-  const handleCellClick = useCallback((col: number, row: number) => {
-    if (isOutOfBounds(col, row, selectedSize, orientation)) return;
-    setSelectedCell(prev => prev?.col === col && prev?.row === row ? null : { col, row });
-  }, [selectedSize, orientation]);
-
-  const handleSizeChange = useCallback((size: BoxSize) => {
-    setSelectedSize(size); setSelectedCell(null);
-  }, []);
-
-  const handleOrientationChange = useCallback((o: Orientation) => {
-    setOrientation(o); setSelectedCell(null);
-  }, []);
-
-  const handleAddBox = useCallback(() => {
-    if (!selectedCell || autoLevel === null) return;
-    setBoxes(prev => [...prev, {
-      id: crypto.randomUUID(), size: selectedSize, orientation,
-      label: boxLabel.trim() || `${SIZE_LABELS[selectedSize]} ${prev.length + 1}`,
-      color: nextColor(), col: selectedCell.col, row: selectedCell.row, level: autoLevel,
-    }]);
-    setSelectedCell(null);
-    setBoxLabel("");
-  }, [selectedCell, autoLevel, selectedSize, orientation, boxLabel]);
-
-  const handleRemoveBox = useCallback((id: string) =>
-    setBoxes(prev => prev.filter(b => b.id !== id)), []);
-
-  const handleClear = useCallback(() => {
-    setBoxes([]); setSelectedCell(null); colorIndex = 0;
-  }, []);
-
-  // ── Carregar histórico ao entrar na aba ──
-  useEffect(() => {
-    if (activeTab !== "historico") return;
-    setPlansLoading(true);
-    getFiorinoPlans()
-      .then(setPlans)
-      .catch(() => alert("Erro ao carregar histórico."))
-      .finally(() => setPlansLoading(false));
-  }, [activeTab]);
-
-  const handleSavePlan = async () => {
-    setSaving(true);
-    try {
-      await addFiorinoPlan({
-        date: saveDate,
-        campo: null,
-        campaignCode: saveCampaignCode.trim() || null,
-        type: saveType,
-        notes: saveNotes.trim() || null,
-        boxes,
-        occupancyPct,
-        boxCount: boxes.length,
-      });
-      setSaveOpen(false);
-      setSaveCampaignCode("");
-      setSaveNotes("");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : (err as { message?: string })?.message ?? JSON.stringify(err);
-      alert("Erro ao salvar plano: " + msg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDeletePlan = async (id: string) => {
-    if (!confirm("Excluir este plano?")) return;
-    try {
-      await deleteFiorinoPlan(id);
-      setPlans(prev => prev.filter(p => p.id !== id));
-    } catch {
-      alert("Erro ao excluir plano.");
-    }
-  };
-
-  const handleLoadPlan = (plan: FiorinoPlan) => {
-    setBoxes(plan.boxes);
-    setSelectedCell(null);
-    colorIndex = plan.boxes.length % BOX_COLORS.length;
-    setActiveTab("posicionar");
-  };
-
-  const activeCfg = getBoxConfig(selectedSize, orientation);
-
-  // Reutilizável: label de seção
-  const SectionLabel = ({ children }: { children: React.ReactNode }) => (
-    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{children}</p>
-  );
-
-  // Botão de seleção genérico
-  const SelBtn = ({
-    active, onClick, children, className,
-  }: { active: boolean; onClick: () => void; children: React.ReactNode; className?: string }) => (
+function SelBtn({
+  active, onClick, children, className,
+}: { active: boolean; onClick: () => void; children: React.ReactNode; className?: string }) {
+  return (
     <button
       onClick={onClick}
       className={cn(
@@ -243,6 +208,165 @@ export default function FiorinoPage() {
       {children}
     </button>
   );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+export default function FiorinoPage() {
+  const { isAdmin, hasFiorino, profileLoaded } = useUserRole();
+  const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirm();
+
+  useEffect(() => { colorIndex = 0; }, []);
+
+  useEffect(() => {
+    if (!profileLoaded) return;
+    if (!isAdmin && !hasFiorino) router.replace("/orders");
+  }, [profileLoaded, isAdmin, hasFiorino, router]);
+
+  // ── Placement state ──
+  const [boxes, setBoxes] = useState<PlacedBox[]>([]);
+  const [selectedSize, setSelectedSize] = useState<BoxType>("PA");
+  const [orientation, setOrientation] = useState<Orientation>("vertical");
+  const [boxLabel, setBoxLabel] = useState("");
+  const [hoverPos, setHoverPos] = useState<{ x: number; z: number } | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // ── Save plan state ──
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveDate, setSaveDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [saveType, setSaveType] = useState("entrega");
+  const [saveCampaignCode, setSaveCampaignCode] = useState("");
+  const [saveNotes, setSaveNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // ── History state ──
+  const [plans, setPlans] = useState<FiorinoPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("posicionar");
+
+  // Volume-based occupancy
+  const usedVolume = useMemo(() =>
+    boxes.reduce((sum, box) => {
+      const { w, h, d } = getBoxDimsM(box.size, box.orientation);
+      return sum + w * h * d;
+    }, 0), [boxes]);
+  const occupancyPct = Math.min(100, Math.round((usedVolume / TOTAL_VOLUME) * 100));
+
+  // Derived dims for orientation label
+  const { w: dimW, h: dimH, d: dimD } = useMemo(
+    () => getBoxDimsM(selectedSize, orientation), [selectedSize, orientation]);
+
+  // ── Canvas helpers ──
+  const getCanvasPos = useCallback((clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const PAD = 10;
+    const aW = rect.width  - PAD * 2;
+    const aH = rect.height - PAD * 2;
+    return {
+      x: ((clientX - rect.left - PAD) / aW) * CARGO.width,
+      z: ((clientY - rect.top  - PAD) / aH) * CARGO.length,
+    };
+  }, []);
+
+  const placeBox = useCallback((clientX: number, clientY: number) => {
+    const pos = getCanvasPos(clientX, clientY);
+    if (!pos) return;
+    const { w: bw, h: bh, d: bd } = getBoxDimsM(selectedSize, orientation);
+    const cx = Math.max(0, Math.min(CARGO.width  - bw, pos.x - bw / 2));
+    const cz = Math.max(0, Math.min(CARGO.length - bd, pos.z - bd / 2));
+    const y  = findStackY(cx, cz, bw, bd, boxes);
+    if (!canPlace(cx, y, cz, bw, bh, bd)) return;
+    setBoxes(prev => [...prev, {
+      id: crypto.randomUUID(), size: selectedSize, orientation,
+      label: boxLabel.trim() || `${SIZE_LABELS[selectedSize]} ${prev.length + 1}`,
+      color: nextColor(), x: cx, y, z: cz,
+    }]);
+    setBoxLabel("");
+  }, [selectedSize, orientation, boxes, boxLabel, getCanvasPos]);
+
+  const handleCanvasMove  = useCallback((e: React.MouseEvent<HTMLCanvasElement>) =>
+    setHoverPos(getCanvasPos(e.clientX, e.clientY)), [getCanvasPos]);
+  const handleCanvasLeave = useCallback(() => setHoverPos(null), []);
+  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) =>
+    placeBox(e.clientX, e.clientY), [placeBox]);
+  const handleCanvasTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    const t = e.changedTouches[0];
+    if (t) placeBox(t.clientX, t.clientY);
+  }, [placeBox]);
+
+  // Redraw canvas whenever any input changes
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const draw = () => {
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (!w || !h) return;
+      if (canvas.width  !== w) canvas.width  = w;
+      if (canvas.height !== h) canvas.height = h;
+      drawFloorPlan(canvas, boxes, hoverPos, selectedSize, orientation);
+    };
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, [boxes, hoverPos, selectedSize, orientation]);
+
+  const handleRemoveBox = useCallback((id: string) =>
+    setBoxes(prev => prev.filter(b => b.id !== id)), []);
+
+  const handleClear = useCallback(() => { setBoxes([]); colorIndex = 0; }, []);
+
+  // ── History ──
+  useEffect(() => {
+    if (activeTab !== "historico") return;
+    setPlansLoading(true);
+    getFiorinoPlans()
+      .then(setPlans)
+      .catch(() => alert("Erro ao carregar histórico."))
+      .finally(() => setPlansLoading(false));
+  }, [activeTab]);
+
+  const handleSavePlan = async () => {
+    setSaving(true);
+    try {
+      await addFiorinoPlan({
+        date: saveDate, campo: null,
+        campaignCode: saveCampaignCode.trim() || null,
+        type: saveType, notes: saveNotes.trim() || null,
+        boxes, occupancyPct, boxCount: boxes.length,
+      });
+      setSaveOpen(false);
+      setSaveCampaignCode("");
+      setSaveNotes("");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : (err as { message?: string })?.message ?? JSON.stringify(err);
+      alert("Erro ao salvar plano: " + msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeletePlan = async (id: string) => {
+    if (!await confirm("Excluir este plano?", {
+      description: "Esta ação não pode ser desfeita.",
+      confirmLabel: "Excluir", destructive: true,
+    })) return;
+    try {
+      await deleteFiorinoPlan(id);
+      setPlans(prev => prev.filter(p => p.id !== id));
+    } catch {
+      alert("Erro ao excluir plano.");
+    }
+  };
+
+  const handleLoadPlan = (plan: FiorinoPlan) => {
+    const validBoxes = (plan.boxes as PlacedBox[]).filter(b => typeof b.x === "number");
+    setBoxes(validBoxes);
+    colorIndex = validBoxes.length % BOX_COLORS.length;
+    setActiveTab("posicionar");
+  };
 
   if (!profileLoaded) {
     return (
@@ -254,12 +378,13 @@ export default function FiorinoPage() {
 
   return (
     <div className="flex flex-col gap-3">
+      {confirmDialog}
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-white">Fiorino</h1>
-          <p className="text-xs text-slate-500">1,85 × 1,32 × 1,36 m</p>
+          <p className="text-xs text-slate-500">1,90 × 1,32 × 1,34 m</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
@@ -275,8 +400,7 @@ export default function FiorinoPage() {
             }} />
           </div>
           <Button
-            size="sm"
-            variant="outline"
+            size="sm" variant="outline"
             onClick={() => { setSaveDate(new Date().toISOString().slice(0, 10)); setSaveOpen(true); }}
             disabled={boxes.length === 0}
             className="border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200"
@@ -297,14 +421,12 @@ export default function FiorinoPage() {
           <FiorinoViewer boxes={boxes} />
         </div>
 
-        {/* ── Painel de controles ──
-            Desktop: 600px fixo, flex-col, sem scroll externo
-            Mobile:  altura natural, página scrollável                    */}
+        {/* Controls panel */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden
                         md:w-[300px] md:h-[600px] md:flex md:flex-col md:shrink-0">
 
-          {/* Tabs — gap-0 remove o espaço padrão entre list e content */}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 min-h-0 gap-0 md:flex md:flex-col">
+          <Tabs value={activeTab} onValueChange={setActiveTab}
+            className="flex-1 min-h-0 gap-0 md:flex md:flex-col">
 
             <TabsList className="grid grid-cols-3 w-full rounded-none border-b border-slate-800 bg-transparent h-11 shrink-0">
               <TabsTrigger value="posicionar"
@@ -321,149 +443,68 @@ export default function FiorinoPage() {
               </TabsTrigger>
             </TabsList>
 
-            {/* ── Tab: Posicionar ──
-                Desktop: flex-col, flex-1, sem scroll — grade se expande para preencher
-                Mobile:  altura natural                                             */}
-            <TabsContent value="posicionar"
-              className="m-0 flex flex-col min-h-0 md:flex-1">
+            {/* ── Tab: Posicionar ── */}
+            <TabsContent value="posicionar" className="m-0 flex flex-col min-h-0 md:flex-1">
               <div className="flex flex-col gap-3 p-3 md:flex-1 md:min-h-0">
 
-                {/* Tamanho */}
+                {/* Box size selector */}
                 <div className="shrink-0 flex flex-col gap-1.5">
-                  <SectionLabel>Tamanho</SectionLabel>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {(["P", "M", "G"] as BoxSize[]).map(s => (
-                      <SelBtn key={s} active={selectedSize === s} onClick={() => handleSizeChange(s)}
-                        className="py-2">
+                  <SectionLabel>Caixa</SectionLabel>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {(["PA", "MA", "MB", "G"] as BoxType[]).map(s => (
+                      <SelBtn key={s} active={selectedSize === s}
+                        onClick={() => setSelectedSize(s)} className="py-2 text-xs">
                         {SIZE_LABELS[s]}
                       </SelBtn>
                     ))}
                   </div>
                 </div>
 
-                {/* Orientação */}
+                {/* Orientation selector */}
                 <div className="shrink-0 flex flex-col gap-1.5">
                   <SectionLabel>
                     Orientação
                     <span className="ml-2 normal-case font-normal text-slate-500 tracking-normal">
-                      {activeCfg.cols}×{activeCfg.rows}×{activeCfg.levels}
+                      {dimW.toFixed(2)}×{dimH.toFixed(2)}×{dimD.toFixed(2)} m
                     </span>
                   </SectionLabel>
                   <div className="flex gap-1.5">
                     {(["vertical", "horizontal"] as Orientation[]).map(o => (
                       <SelBtn key={o} active={orientation === o}
-                        onClick={() => handleOrientationChange(o)} className="flex-1 py-2">
+                        onClick={() => setOrientation(o)} className="flex-1 py-2">
                         {o === "vertical" ? "↑ Vertical" : "↔ Horizontal"}
                       </SelBtn>
                     ))}
                   </div>
                 </div>
 
-                {/* Nível */}
-                <div className="shrink-0 flex flex-col gap-1.5">
-                  <SectionLabel>
-                    Nível
-                    <span className="ml-2 normal-case font-normal text-slate-500 tracking-normal">
-                      {viewLevel === 0 ? "Chão" : `Nível ${viewLevel + 1}`}
-                    </span>
-                  </SectionLabel>
-                  <div className="flex gap-1.5">
-                    {Array.from({ length: LEVELS }, (_, i) => (
-                      <SelBtn key={i} active={viewLevel === i}
-                        onClick={() => setViewLevel(i)} className="flex-1 py-1.5 text-xs">
-                        {i === 0 ? "Chão" : `Nív ${i + 1}`}
-                      </SelBtn>
-                    ))}
-                  </div>
+                {/* 2D floor plan — fills remaining space on desktop */}
+                <div className="flex flex-col gap-1.5 md:flex-1 md:min-h-0">
+                  <SectionLabel>Planta baixa — clique para posicionar</SectionLabel>
+                  <canvas
+                    ref={canvasRef}
+                    className="flex-1 min-h-[130px] rounded-lg cursor-crosshair touch-none border border-slate-800"
+                    onMouseMove={handleCanvasMove}
+                    onMouseLeave={handleCanvasLeave}
+                    onClick={handleCanvasClick}
+                    onTouchEnd={handleCanvasTouchEnd}
+                  />
                 </div>
 
-                {/* ── Grade 2D — flex-1: preenche o espaço restante no desktop ── */}
-                <div className="flex flex-col gap-1 md:flex-1 md:min-h-0">
-                  {/* Label vira feedback quando há célula selecionada — sem alterar o height */}
-                  {selectedCell && autoLevel !== null ? (
-                    <p className="shrink-0 text-xs font-semibold text-indigo-300 uppercase tracking-wider">
-                      {SIZE_LABELS[selectedSize]} {orientation === "vertical" ? "↑" : "↔"} ·{" "}
-                      {COL_LABELS[selectedCell.col]}{selectedCell.row + 1} ·{" "}
-                      {autoLevel === 0 ? "Chão" : `Nível ${autoLevel + 1}`}
-                    </p>
-                  ) : selectedCell && autoLevel === null ? (
-                    <p className="shrink-0 text-xs font-semibold text-red-400 uppercase tracking-wider">
-                      Posição inválida
-                    </p>
-                  ) : (
-                    <SectionLabel>Grade</SectionLabel>
-                  )}
-
-                  {/* Cabeçalho de colunas */}
-                  <div className="grid grid-cols-4 gap-1 shrink-0">
-                    {COL_LABELS.map(l => (
-                      <div key={l} className="text-center text-xs font-semibold text-slate-500">{l}</div>
-                    ))}
-                  </div>
-
-                  {/* Linhas — cada linha usa flex-1 para distribuir o espaço vertical */}
-                  <div className="flex flex-col gap-1 md:flex-1 md:min-h-0">
-                    {Array.from({ length: ROWS }, (_, row) => (
-                      <div key={row} className="grid grid-cols-4 gap-1 md:flex-1">
-                        {Array.from({ length: COLS }, (_, col) => {
-                          const key = cellKey(col, row, viewLevel);
-                          const occupiedColor = boxColorAt(col, row, viewLevel, occupation, boxes);
-                          const isSelected = selectedCell?.col === col && selectedCell?.row === row;
-                          const isPreview = previewKeys.has(key);
-                          const oob = isOutOfBounds(col, row, selectedSize, orientation);
-
-                          let bg = "bg-emerald-900/60 border-emerald-700/40 hover:border-emerald-500 hover:bg-emerald-900/80";
-                          if (oob)          bg = "bg-slate-800/40 border-slate-700/30 cursor-default opacity-40";
-                          if (occupiedColor) bg = "border-slate-600/50 cursor-default";
-                          if (isPreview)    bg = "bg-orange-500/30 border-orange-500/60";
-                          if (isSelected)   bg = "bg-orange-500/50 border-orange-400 ring-1 ring-orange-400/50";
-
-                          return (
-                            <button key={col}
-                              onClick={() => handleCellClick(col, row)}
-                              disabled={!!occupiedColor || oob}
-                              // Mobile: h-9 fixo. Desktop: h-full (flex-1 da row)
-                              className={cn(
-                                "h-9 md:h-full rounded border text-xs font-semibold transition-all",
-                                bg
-                              )}
-                              style={occupiedColor
-                                ? { backgroundColor: occupiedColor + "55", borderColor: occupiedColor }
-                                : undefined}
-                              title={`${COL_LABELS[col]}${row + 1}`}>
-                              {occupiedColor ? "" : isSelected ? "✓" : `${COL_LABELS[col]}${row + 1}`}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-
+                {/* Optional label */}
                 <Input
                   value={boxLabel}
                   onChange={e => setBoxLabel(e.target.value)}
-                  placeholder="Descrição da caixa (opcional)"
+                  placeholder="Rótulo da caixa (opcional)"
                   className="shrink-0 bg-slate-800/60 border-slate-700 text-white placeholder:text-slate-500"
                   maxLength={40}
-                  onKeyDown={e => { if (e.key === "Enter") handleAddBox(); }}
                 />
-
-                <Button
-                  onClick={handleAddBox}
-                  disabled={!selectedCell || autoLevel === null}
-                  className="shrink-0 w-full"
-                >
-                  Adicionar Caixa
-                </Button>
 
               </div>
             </TabsContent>
 
             {/* ── Tab: Caixas ── */}
-            <TabsContent value="caixas"
-              className="m-0 flex flex-col min-h-0 md:overflow-y-auto">
+            <TabsContent value="caixas" className="m-0 flex flex-col min-h-0 md:overflow-y-auto">
               <div className="flex flex-col gap-2 p-3">
                 {boxes.length === 0 ? (
                   <p className="text-sm text-slate-500 text-center mt-8">Nenhuma caixa adicionada</p>
@@ -476,8 +517,8 @@ export default function FiorinoPage() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-white truncate">{box.label}</p>
                           <p className="text-xs text-slate-400">
-                            {SIZE_LABELS[box.size]} · {box.orientation === "vertical" ? "↑" : "↔"} ·{" "}
-                            {COL_LABELS[box.col]}{box.row + 1} · {box.level === 0 ? "Chão" : `Nív ${box.level + 1}`}
+                            {SIZE_LABELS[box.size]} · {box.orientation === "vertical" ? "↑ Vert." : "↔ Horiz."}
+                            {box.y > 0.01 ? ` · +${box.y.toFixed(2)}m` : " · chão"}
                           </p>
                         </div>
                         <button onClick={() => handleRemoveBox(box.id)}
@@ -497,8 +538,7 @@ export default function FiorinoPage() {
             </TabsContent>
 
             {/* ── Tab: Histórico ── */}
-            <TabsContent value="historico"
-              className="m-0 flex flex-col min-h-0 md:overflow-y-auto">
+            <TabsContent value="historico" className="m-0 flex flex-col min-h-0 md:overflow-y-auto">
               <div className="flex flex-col gap-2 p-3">
                 {plansLoading ? (
                   <div className="flex justify-center py-8">

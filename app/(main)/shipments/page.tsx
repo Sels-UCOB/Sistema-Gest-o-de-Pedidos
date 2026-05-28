@@ -121,6 +121,7 @@ export default function ShipmentsPage() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
 
   const [activeShipmentId, setActiveShipmentId] = useState<string | null>(null);
+  const [previewReceiptUrl, setPreviewReceiptUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [editingShipment, setEditingShipment] = useState<Shipment | null>(null);
@@ -417,7 +418,12 @@ export default function ShipmentsPage() {
                           }}
                         />
                         <div className="flex-1">
-                          <Label htmlFor={order.id} className="font-semibold text-white">{order.customerName}</Label>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Label htmlFor={order.id} className="font-semibold text-white">{order.customerName}</Label>
+                            {order.tipo === "acerto" && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 uppercase tracking-wider">Acerto</span>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-400">{order.destinationCity} | {order.items.length} itens</p>
                         </div>
                       </div>
@@ -455,7 +461,7 @@ export default function ShipmentsPage() {
               </RadioGroup>
             </div>
             {editType === "transportadora" && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Transportadora</Label>
                   <Input value={editCarrierName} onChange={e => setEditCarrierName(e.target.value)} />
@@ -486,25 +492,62 @@ export default function ShipmentsPage() {
         </DialogContent>
       </Dialog>
 
-      {activeShipmentId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setActiveShipmentId(null)}>
-          <div className="relative w-full max-w-sm mx-4 rounded-xl p-4 bg-slate-900 border border-slate-800" onClick={e => e.stopPropagation()}>
-            <h2 className="font-semibold text-base mb-1 text-white">Anexar Comprovantes</h2>
-            <p className="text-sm text-slate-400 mb-4">Tire fotos dos comprovantes fiscais ou recibos da transportadora</p>
-            <div className="flex flex-col gap-4">
-              <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg cursor-pointer flex-col items-center gap-2 justify-center" })}>
-                <Camera className="h-8 w-8 shrink-0" />
-                <span>Adicionar Foto</span>
-                <input type="file" accept="image/*" className="hidden" onChange={handleReceiptPhotoCapture} />
-              </label>
-              {shipments?.find(s => s.id === activeShipmentId)?.receiptPhotoUrls?.map((url, i) => (
-                <img key={i} src={url} alt="Comprovante" className="max-h-48 object-cover border rounded" />
-              ))}
+      {activeShipmentId && (() => {
+        const activeShipment = shipments?.find(s => s.id === activeShipmentId);
+        const photos = activeShipment?.receiptPhotoUrls ?? [];
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setActiveShipmentId(null)}>
+            <div className="relative w-full max-w-sm mx-4 rounded-xl p-4 bg-slate-900 border border-slate-800" onClick={e => e.stopPropagation()}>
+              <h2 className="font-semibold text-base mb-1 text-white">Comprovantes</h2>
+              <p className="text-sm text-slate-400 mb-4">
+                {photos.length > 0
+                  ? "Toque em uma foto para ampliar."
+                  : "Tire fotos dos comprovantes fiscais ou recibos da transportadora."}
+              </p>
+              <div className="flex flex-col gap-3 max-h-[60vh] overflow-y-auto">
+                {photos.map((url, i) => (
+                  <div
+                    key={i}
+                    className="cursor-pointer rounded-lg overflow-hidden border border-slate-700 hover:border-indigo-500/50 transition-colors"
+                    onClick={() => setPreviewReceiptUrl(url)}
+                  >
+                    <img src={url} alt={`Comprovante ${i + 1}`} className="w-full max-h-52 object-contain bg-slate-800" />
+                  </div>
+                ))}
+                {photos.length === 0 && (
+                  <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg cursor-pointer flex-col items-center gap-2 justify-center" })}>
+                    <Camera className="h-8 w-8 shrink-0" />
+                    <span>Adicionar Foto</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={handleReceiptPhotoCapture} />
+                  </label>
+                )}
+              </div>
+              <button
+                onClick={() => setActiveShipmentId(null)}
+                className="absolute top-2 right-2 text-slate-400 hover:text-white text-lg font-bold px-2"
+              >✕</button>
             </div>
+          </div>
+        );
+      })()}
+
+      {previewReceiptUrl && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-4"
+          onClick={() => setPreviewReceiptUrl(null)}
+        >
+          <div className="relative max-w-3xl w-full" onClick={e => e.stopPropagation()}>
             <button
-              onClick={() => setActiveShipmentId(null)}
-              className="absolute top-2 right-2 text-slate-400 hover:text-white text-lg font-bold px-2"
-            >✕</button>
+              className="absolute -top-9 right-0 text-white/70 hover:text-white text-sm transition-colors"
+              onClick={() => setPreviewReceiptUrl(null)}
+            >
+              ✕ Fechar
+            </button>
+            <img
+              src={previewReceiptUrl}
+              alt="Comprovante"
+              className="w-full max-h-[85vh] object-contain rounded-xl shadow-2xl"
+            />
           </div>
         </div>
       )}

@@ -3,51 +3,83 @@
 import { useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
 
+export type BoxType        = "PA" | "MA" | "MB" | "G";
+export type BoxOrientation = "vertical" | "horizontal";
+
+// Box placed at real metre coordinates inside the cargo area
 export interface PlacedBox {
-  id: string;
-  size: "P" | "M" | "G";
-  orientation: "vertical" | "horizontal";
-  label: string;
-  color: string;
-  col: number;
-  row: number;
-  level: number;
+  id:          string;
+  size:        BoxType;
+  orientation: BoxOrientation;
+  label:       string;
+  color:       string;
+  x:           number;  // metres from left wall
+  y:           number;  // metres from floor (auto-stacked)
+  z:           number;  // metres from cab partition
 }
 
-export const BOX_CONFIGS: Record<
-  PlacedBox["size"],
-  Record<PlacedBox["orientation"], { cols: number; rows: number; levels: number }>
-> = {
-  P: {
-    vertical:   { cols: 1, rows: 1, levels: 1 },
-    horizontal: { cols: 1, rows: 1, levels: 1 },
-  },
-  M: {
-    vertical:   { cols: 1, rows: 2, levels: 1 },
-    horizontal: { cols: 2, rows: 1, levels: 1 },
-  },
-  G: {
-    vertical:   { cols: 2, rows: 2, levels: 3 },
-    horizontal: { cols: 2, rows: 3, levels: 2 },
-  },
+// Real physical dimensions: [width(X), height(Y), depth(Z)] in metres
+export const BOX_DIMS_M: Record<BoxType, [number, number, number]> = {
+  PA: [0.30, 0.21, 0.25],
+  MA: [0.44, 0.21, 0.30],
+  MB: [0.26, 0.38, 0.36],
+  G:  [0.75, 0.56, 0.43],
 };
 
-export function getBoxConfig(s: PlacedBox["size"], o: PlacedBox["orientation"]) {
-  return BOX_CONFIGS[s][o];
+// Returns real dimensions in metres (swapping W↔D for horizontal)
+export function getBoxDimsM(type: BoxType, orientation: BoxOrientation) {
+  const [wm, hm, dm] = BOX_DIMS_M[type];
+  return orientation === "vertical"
+    ? { w: wm, h: hm, d: dm }
+    : { w: dm, h: hm, d: wm };
 }
 
-// Fiorino 2025: 1.32 m wide × 1.85 m long × 1.36 m tall
-// 4 cols × 6 rows × 4 levels
-const COLS = 4;
-const ROWS = 6;
-const LEVELS = 4;
-const CX = 1.0;      // col width
-const CZ = 0.926;    // row depth
-const CY = 1.030;    // level height
+// Returns dimensions in Three.js units (SCALE applied)
+export function getRealDims(type: BoxType, orientation: BoxOrientation) {
+  const s = 4.0 / 1.32;
+  const { w, h, d } = getBoxDimsM(type, orientation);
+  return { w: w * s, h: h * s, d: d * s };
+}
 
-const W = COLS * CX;
-const D = ROWS * CZ;
-const H = LEVELS * CY;
+// ── Compartment constants (exported for canvas drawing) ─────────────────────
+export const CARGO = { width: 1.32, length: 1.90, height: 1.34, opHeight: 1.10 } as const;
+
+// Wheel arch volumes in real metres (origin = cab-left-floor corner)
+// Both arches start 0.47 m from the door → z0 = 1.90 − 0.47 − 0.74 = 0.69 m from cab
+export const ARCH_LEFT  = { x: 0,    z: 0.69, w: 0.12, d: 0.74, hMax: 0.43 } as const;
+export const ARCH_RIGHT = { x: 1.20, z: 0.69, w: 0.12, d: 0.74, hMax: 0.32 } as const;
+
+// Fiorino: 1.32 m wide × 1.90 m long × 1.34 m tall
+// Grid: 4 cols × 6 rows × 5 levels (operational height 1.10 m)
+// Scale: 4.0 ÷ 1.32 ≈ 3.03 Three.js units per metre
+const SCALE  = 4.0 / 1.32;          // ≈ 3.030 u/m
+
+const COLS   = 4;
+const ROWS   = 6;
+const LEVELS = 5;                    // 5 × 0.22 m = 1.10 m operational
+
+const CX     = 1.0;                  // col width      (0.33 m)
+const CZ     = 1.90 / 6 * SCALE;    // row depth      (0.317 m → 0.960 u)
+const CY     = 1.10 / 5 * SCALE;    // level height   (0.22  m → 0.667 u)
+
+const W      = COLS   * CX;         // 4.0  u = 1.32 m
+const D      = ROWS   * CZ;         // 5.76 u = 1.90 m
+const H      = LEVELS * CY;         // 3.33 u = 1.10 m  (operational / stack limit)
+const HWALL  = 1.34   * SCALE;      // 4.06 u = 1.34 m  (actual compartment height)
+
+// Arch geometry in Three.js units
+// Arches start 0.47 m from door → Z from cab = D − 0.47·SCALE
+const ARCH_ZL   = 0.74  * SCALE;          // arch depth = 2.24 u
+const ARCH_Z1   = D - 0.47 * SCALE;       // near-door end  Z = 4.34 u
+const ARCH_Z0   = ARCH_Z1 - ARCH_ZL;      // cab-side start Z = 2.09 u
+
+// Left arch:  0.12 m wide, 0.43 m tall
+const ARCH_L_W  = 0.12 * SCALE;           // 0.364 u
+const ARCH_L_H  = 0.43 * SCALE;           // 1.303 u
+
+// Right arch: 0.12 m wide, 0.32 m tall
+const ARCH_R_W  = 0.12 * SCALE;           // 0.364 u  (same width)
+const ARCH_R_H  = 0.32 * SCALE;           // 0.970 u
 
 const DEFAULT_ROT  = { x: 0.32, y: 0.60 };
 const ZOOM_DEFAULT = 1.0;
@@ -113,9 +145,9 @@ export default function FiorinoViewer({ boxes }: Props) {
     const scene = new THREE.Scene();
 
     const camera = new THREE.PerspectiveCamera(42, el.clientWidth / el.clientHeight, 0.1, 200);
-    const dist = Math.max(W, D, H) * 2.0;
+    const dist = Math.max(W, D, HWALL) * 2.0;
     camera.position.set(dist * 0.65, dist * 0.60, dist * 0.95);
-    const lookAtPt = new THREE.Vector3(W / 2, H / 2, D / 2);
+    const lookAtPt = new THREE.Vector3(W / 2, HWALL / 2, D / 2);
     camera.lookAt(lookAtPt);
 
     // Direção e distância base para o sistema de zoom
@@ -128,7 +160,7 @@ export default function FiorinoViewer({ boxes }: Props) {
     scene.add(sun);
 
     const pivot = new THREE.Group();
-    pivot.position.set(-W / 2, -H / 2, -D / 2);
+    pivot.position.set(-W / 2, -HWALL / 2, -D / 2);
     pivot.rotation.x = DEFAULT_ROT.x;
     pivot.rotation.y = DEFAULT_ROT.y;
     scene.add(pivot);
@@ -140,6 +172,23 @@ export default function FiorinoViewer({ boxes }: Props) {
     );
     floor.position.set(W / 2, -0.03, D / 2);
     pivot.add(floor);
+
+    // Wheel arch blocks — left and right have DIFFERENT heights
+    const archMat     = new THREE.MeshPhongMaterial({ color: 0x0f172a, shininess: 10 });
+    const archEdgeMat = new THREE.LineBasicMaterial({ color: 0x475569 });
+    const archCenterZ = ARCH_Z0 + ARCH_ZL / 2;
+    for (const [aw, ah, ax] of [
+      [ARCH_L_W, ARCH_L_H, ARCH_L_W / 2],          // left  (col A)
+      [ARCH_R_W, ARCH_R_H, W - ARCH_R_W / 2],       // right (col D)
+    ] as [number, number, number][]) {
+      const geo  = new THREE.BoxGeometry(aw, ah, ARCH_ZL);
+      const mesh = new THREE.Mesh(geo, archMat);
+      mesh.position.set(ax, ah / 2, archCenterZ);
+      pivot.add(mesh);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), archEdgeMat);
+      edges.position.copy(mesh.position);
+      pivot.add(edges);
+    }
 
     // Semi-transparent walls + edges
     const wallMat = () => new THREE.MeshPhongMaterial({
@@ -157,22 +206,31 @@ export default function FiorinoViewer({ boxes }: Props) {
       pivot.add(e);
     }
 
-    wall(new THREE.PlaneGeometry(D, H), 0,     H / 2, D / 2,  0,             Math.PI / 2);  // left
-    wall(new THREE.PlaneGeometry(D, H), W,     H / 2, D / 2,  0,            -Math.PI / 2);  // right
-    wall(new THREE.PlaneGeometry(W, H), W / 2, H / 2, 0,      0,             0);             // front cab
-    wall(new THREE.PlaneGeometry(W, D), W / 2, H,     D / 2,  Math.PI / 2,  0);             // roof
+    wall(new THREE.PlaneGeometry(D, HWALL), 0,       HWALL / 2, D / 2,  0,            Math.PI / 2);  // left
+    wall(new THREE.PlaneGeometry(D, HWALL), W,       HWALL / 2, D / 2,  0,           -Math.PI / 2);  // right
+    wall(new THREE.PlaneGeometry(W, HWALL), W / 2,   HWALL / 2, 0,      0,            0);             // front cab
+    wall(new THREE.PlaneGeometry(W, D),     W / 2,   HWALL,     D / 2,  Math.PI / 2, 0);             // roof
 
-    // Rear opening frame
-    const rf = [0,0,D, W,0,D,  W,0,D, W,H,D,  W,H,D, 0,H,D,  0,H,D, 0,0,D];
+    // Rear opening frame (uses actual height HWALL)
+    const rf = [0,0,D, W,0,D,  W,0,D, W,HWALL,D,  W,HWALL,D, 0,HWALL,D,  0,HWALL,D, 0,0,D];
     const rg = new THREE.BufferGeometry();
     rg.setAttribute("position", new THREE.Float32BufferAttribute(rf, 3));
     pivot.add(new THREE.LineSegments(rg, new THREE.LineBasicMaterial({ color: 0x94a3b8 })));
 
-    // Corner verticals
-    const cv = [0,0,0, 0,H,0,  W,0,0, W,H,0,  0,0,D, 0,H,D,  W,0,D, W,H,D];
+    // Corner verticals (actual height)
+    const cv = [0,0,0, 0,HWALL,0,  W,0,0, W,HWALL,0,  0,0,D, 0,HWALL,D,  W,0,D, W,HWALL,D];
     const cg = new THREE.BufferGeometry();
     cg.setAttribute("position", new THREE.Float32BufferAttribute(cv, 3));
     pivot.add(new THREE.LineSegments(cg, new THREE.LineBasicMaterial({ color: 0x64748b })));
+
+    // Dashed operational-height line at H (1.10 m) — perimeter at that height
+    const ophPts = [0,H,0, W,H,0,  W,H,0, W,H,D,  W,H,D, 0,H,D,  0,H,D, 0,H,0];
+    const ophGeo = new THREE.BufferGeometry();
+    ophGeo.setAttribute("position", new THREE.Float32BufferAttribute(ophPts, 3));
+    const ophLine = new THREE.LineSegments(ophGeo,
+      new THREE.LineDashedMaterial({ color: 0x475569, dashSize: 0.18, gapSize: 0.10 }));
+    ophLine.computeLineDistances();
+    pivot.add(ophLine);
 
     // Floor grid
     const gv: number[] = [];
@@ -181,19 +239,6 @@ export default function FiorinoViewer({ boxes }: Props) {
     const gg = new THREE.BufferGeometry();
     gg.setAttribute("position", new THREE.Float32BufferAttribute(gv, 3));
     pivot.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0x334155 })));
-
-    // Column labels A–D
-    ["A","B","C","D"].forEach((lbl, c) => {
-      const s = makeLabel(lbl, 80); s.scale.set(0.55, 0.55, 1);
-      s.position.set(c * CX + CX / 2, 0.05, D + 0.45);
-      pivot.add(s);
-    });
-    // Row labels 1–6
-    for (let r = 0; r < ROWS; r++) {
-      const s = makeLabel(String(r + 1), 64); s.scale.set(0.42, 0.42, 1);
-      s.position.set(-0.5, 0.20, r * CZ + CZ / 2);
-      pivot.add(s);
-    }
 
     const boxGroup = new THREE.Group();
     pivot.add(boxGroup);
@@ -335,13 +380,18 @@ export default function FiorinoViewer({ boxes }: Props) {
       boxGroup.remove(c);
     }
     for (const box of boxes) {
-      const cfg = getBoxConfig(box.size, box.orientation);
-      const bw = cfg.cols * CX, bh = cfg.levels * CY, bd = cfg.rows * CZ;
-      const geo = new THREE.BoxGeometry(bw - 0.04, bh - 0.04, bd - 0.04);
+      // Render at real physical size — snap anchor stays at grid corner
+      const { w: bw, h: bh, d: bd } = getRealDims(box.size, box.orientation);
+      const gap = 0.02; // small inset so adjacent boxes don't z-fight
+      const geo = new THREE.BoxGeometry(bw - gap, bh - gap, bd - gap);
       const mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({
         color: new THREE.Color(box.color), transparent: true, opacity: 0.90, shininess: 60,
       }));
-      mesh.position.set(box.col * CX + bw / 2, box.level * CY + bh / 2, box.row * CZ + bd / 2);
+      mesh.position.set(
+        box.x * SCALE + bw / 2,
+        box.y * SCALE + bh / 2,
+        box.z * SCALE + bd / 2,
+      );
       boxGroup.add(mesh);
       const edges = new THREE.LineSegments(
         new THREE.EdgesGeometry(geo),

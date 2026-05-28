@@ -209,7 +209,7 @@ export default function ReportsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Filters row */}
-          <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:gap-4">
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 md:flex md:flex-wrap md:gap-4">
             <div className="space-y-1 md:space-y-1.5 md:flex-1">
               <Label className="text-[10px] uppercase tracking-wide text-slate-400 md:text-sm md:normal-case md:tracking-normal md:text-slate-300">De</Label>
               <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="appearance-none" style={{ fontSize: 16 }} />

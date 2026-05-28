@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useDeferredValue } from "react";
+import { useConfirm } from "@/hooks/use-confirm";
 import { Product } from "@/lib/db";
 import {
   getProducts, upsertProducts, upsertProduct, updateProduct,
@@ -15,10 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, Plus, Trash2, Edit2, Check, X, PackagePlus } from "lucide-react";
+import { Upload, Plus, Trash2, Edit2, Check, X, PackagePlus, Search } from "lucide-react";
 
 export default function ProductsPage() {
   const { isAdmin, campo, profileLoaded, refreshTick } = useUserRole();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [products, setProducts] = useState<Product[] | undefined>(undefined);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -36,6 +38,9 @@ export default function ProductsPage() {
   const [importing, setImporting] = useState(false);
   const [selectedWarehouse, setSelectedWarehouse] = useState<WarehouseId | "">("");
   const [onlyInStock, setOnlyInStock] = useState(false);
+  const [nameFilter, setNameFilter] = useState("");
+  const deferredNameFilter = useDeferredValue(nameFilter);
+  const isFiltering = nameFilter !== deferredNameFilter;
 
   const availableWarehouses = useMemo(
     () => isAdmin || !campo ? [...WAREHOUSES] : WAREHOUSES.filter(w => w.campo === campo),
@@ -86,10 +91,17 @@ export default function ProductsPage() {
     inventoryMap.get(`${productId}__${warehouseId}`) ?? 0;
 
   const filteredList = useMemo(() => {
-    if (!onlyInStock || !selectedWarehouse) return productList;
-    return productList.filter(p => getStock(p.id, selectedWarehouse) > 0);
+    let list = productList;
+    if (onlyInStock && selectedWarehouse) {
+      list = list.filter(p => getStock(p.id, selectedWarehouse as WarehouseId) > 0);
+    }
+    if (deferredNameFilter.trim()) {
+      const q = deferredNameFilter.toLowerCase().trim();
+      list = list.filter(p => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q));
+    }
+    return list;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productList, onlyInStock, selectedWarehouse, inventoryMap]);
+  }, [productList, onlyInStock, selectedWarehouse, inventoryMap, deferredNameFilter]);
 
   function parseBrNumber(s: string): number {
     return Math.floor(parseFloat(s.replace(/\./g, "").replace(",", ".")) || 0);
@@ -229,7 +241,7 @@ export default function ProductsPage() {
   };
 
   const handleDeleteProduct = async (id: string) => {
-    if (confirm("Deseja realmente excluir este produto?")) {
+    if (await confirm("Excluir este produto?", { description: "Esta ação não pode ser desfeita.", confirmLabel: "Excluir", destructive: true })) {
       try {
         await deleteProductDb(id);
         await loadProducts();
@@ -242,7 +254,7 @@ export default function ProductsPage() {
   };
 
   const clearAll = async () => {
-    if (confirm("APAGAR TODOS OS PRODUTOS? Esta acao nao pode ser desfeita.")) {
+    if (await confirm("Apagar todos os produtos?", { description: "Esta ação removerá todo o catálogo e não pode ser desfeita.", confirmLabel: "Apagar tudo", destructive: true })) {
       await clearProducts();
       await loadProducts();
       await loadInventory();
@@ -273,6 +285,7 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {confirmDialog}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Catálogo de Produtos</h1>
@@ -368,7 +381,7 @@ export default function ProductsPage() {
               <div>
                 <CardTitle className="text-lg">
                   Produtos Cadastrados (
-                  {onlyInStock && filteredList.length !== productList.length
+                  {filteredList.length !== productList.length
                     ? `${filteredList.length} de ${productList.length}`
                     : productList.length}
                   )
@@ -380,6 +393,15 @@ export default function ProductsPage() {
                 )}
               </div>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                <div className="relative w-full sm:w-56">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500 pointer-events-none" />
+                  <Input
+                    placeholder="Buscar produto..."
+                    value={nameFilter}
+                    onChange={e => setNameFilter(e.target.value)}
+                    className="pl-8 w-full bg-slate-900 border-slate-700 text-white placeholder:text-slate-500 h-9"
+                  />
+                </div>
                 <Select
                   value={selectedWarehouse}
                   onValueChange={(v) => setSelectedWarehouse(v as WarehouseId)}
@@ -414,7 +436,7 @@ export default function ProductsPage() {
             ) : productList.length > 0 ? (
               <>
                 {/* ── Desktop: tabela ── */}
-                <div className="rounded-md border max-h-[600px] overflow-y-auto overflow-x-auto hidden md:block">
+                <div className={`rounded-md border max-h-[600px] overflow-y-auto overflow-x-auto hidden md:block transition-opacity duration-200 ${isFiltering ? "opacity-40" : "opacity-100"}`}>
                   <Table>
                     <TableHeader className="bg-slate-800/50 sticky top-0">
                       <TableRow>
@@ -473,7 +495,7 @@ export default function ProductsPage() {
                 </div>
 
                 {/* ── Mobile: cards ── */}
-                <div className="md:hidden space-y-2 max-h-[65vh] overflow-y-auto">
+                <div className={`md:hidden space-y-2 max-h-[65vh] overflow-y-auto transition-opacity duration-200 ${isFiltering ? "opacity-40" : "opacity-100"}`}>
                   {filteredList.length === 0 ? (
                     <p className="text-center py-8 text-slate-500 text-sm">
                       Nenhum produto com estoque disponível em {selectedWarehouseLabel}.

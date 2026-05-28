@@ -35,6 +35,7 @@ export interface Order {
   destinationCity: string;
   responsible: string;
   status: "pending" | "separating" | "closed" | "shipped";
+  tipo: "envio" | "acerto";
   items: OrderItem[];
   packedPhotoUrl?: string;
   createdAt: number;
