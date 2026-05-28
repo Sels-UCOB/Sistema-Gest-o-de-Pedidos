@@ -219,6 +219,8 @@ export default function OrdersPage() {
   const [wppResult, setWppResult] = useState<WppItem[] | null>(null);
   const [wppLoading, setWppLoading] = useState(false);
   const [wppMode, setWppMode] = useState<"ai" | "local" | null>(null);
+  const [wppEditSearch, setWppEditSearch] = useState<{ idx: number; query: string } | null>(null);
+  const [wppEditResults, setWppEditResults] = useState<Product[]>([]);
   const [dialogError, setDialogError] = useState<string | null>(null);
 
   const handleConvertWpp = async () => {
@@ -265,23 +267,57 @@ export default function OrdersPage() {
     } catch { /* fallback abaixo */ }
     if (!usedAi) setWppResult(parseWppMessage(wppText, products));
     setWppMode(usedAi ? "ai" : "local");
+    setWppEditSearch(null);
+    setWppEditResults([]);
     setWppLoading(false);
+  };
+
+  const updateWppQty = (idx: number, delta: number) =>
+    setWppResult(prev => prev ? prev.map((item, i) =>
+      i === idx ? { ...item, qty: Math.max(1, item.qty + delta) } : item
+    ) : prev);
+
+  const updateWppProduct = (idx: number, product: Product) => {
+    setWppResult(prev => prev ? prev.map((item, i) =>
+      i === idx ? { ...item, matched: product } : item
+    ) : prev);
+    setWppEditSearch(null);
+    setWppEditResults([]);
+  };
+
+  const handleWppItemSearch = (idx: number, query: string) => {
+    setWppEditSearch({ idx, query });
+    if (query.length >= 2 && products) {
+      setWppEditResults(
+        products
+          .filter(p => p.name.toLowerCase().includes(query.toLowerCase()))
+          .sort((a, b) =>
+            (a.name.toLowerCase().startsWith(query.toLowerCase()) ? -1 : 1) -
+            (b.name.toLowerCase().startsWith(query.toLowerCase()) ? -1 : 1)
+          )
+          .slice(0, 6)
+      );
+    } else {
+      setWppEditResults([]);
+    }
   };
 
   const handleFillFromWpp = () => {
     if (!wppResult) return;
-    const matched = wppResult.filter(r => r.matched);
-    if (matched.length === 0) return;
-    setParsedItems(matched.map(r => ({
-      productId: r.matched!.id,
-      name: r.matched!.name,
+    const items = wppResult.map(r => ({
+      productId: r.matched?.id ?? `unknown-${Date.now()}-${Math.random()}`,
+      name: r.matched?.name ?? r.rawText,
       quantity: r.qty,
       isSeparated: false,
-    })));
+    }));
+    if (items.every(i => i.productId.startsWith("unknown-"))) return;
+    setParsedItems(items);
     setAmbiguousItems([]);
-    setRawItems(matched.map(r => `${r.qty} - ${r.matched!.name}`).join("\n"));
+    setRawItems(items.filter(i => !i.productId.startsWith("unknown-")).map(i => `${i.quantity} - ${i.name}`).join("\n"));
     setWppText("");
     setWppResult(null);
+    setWppEditSearch(null);
+    setWppEditResults([]);
     setShowPreview(true);
   };
 
@@ -1055,35 +1091,97 @@ export default function OrdersPage() {
                         {wppResult.map((item, i) => (
                           <div
                             key={i}
-                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${
+                            className={`rounded-lg border overflow-hidden ${
                               item.matched
                                 ? "border-emerald-800/40 bg-emerald-900/10"
                                 : "border-red-800/40 bg-red-900/10"
                             }`}
                           >
-                            <span className="text-slate-400 text-sm font-mono w-8 shrink-0 text-right">
-                              {item.qty}×
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              {item.matched ? (
-                                <p className="text-sm text-emerald-300 font-medium">{item.matched.name}</p>
-                              ) : (
-                                <p className="text-sm text-red-400">
-                                  {item.rawText}
-                                  <span className="text-slate-600 text-xs ml-1">— não encontrado</span>
-                                </p>
-                              )}
-                              {item.matched && item.rawText.toLowerCase() !== item.matched.name.toLowerCase() && (
-                                <p className="text-[10px] text-slate-600 mt-0.5 truncate">"{item.rawText}"</p>
-                              )}
+                            {/* Item row */}
+                            <div className="flex items-center gap-2 px-3 py-2.5">
+                              {/* Qty stepper */}
+                              <div className="flex items-center shrink-0">
+                                <button
+                                  className="w-6 h-6 rounded text-slate-400 hover:text-white hover:bg-slate-700 text-sm font-bold transition-colors"
+                                  onClick={() => updateWppQty(i, -1)}
+                                >−</button>
+                                <span className="text-slate-300 font-mono text-sm w-8 text-center select-none">{item.qty}×</span>
+                                <button
+                                  className="w-6 h-6 rounded text-slate-400 hover:text-white hover:bg-slate-700 text-sm font-bold transition-colors"
+                                  onClick={() => updateWppQty(i, 1)}
+                                >+</button>
+                              </div>
+
+                              {/* Product name */}
+                              <div className="flex-1 min-w-0">
+                                {item.matched ? (
+                                  <>
+                                    <p className="text-sm text-emerald-300 font-medium truncate">{item.matched.name}</p>
+                                    {item.rawText.toLowerCase() !== item.matched.name.toLowerCase() && (
+                                      <p className="text-[10px] text-slate-600 truncate">"{item.rawText}"</p>
+                                    )}
+                                  </>
+                                ) : (
+                                  <p className="text-sm text-red-400 truncate">
+                                    {item.rawText}
+                                    <span className="text-slate-600 text-xs ml-1">— não encontrado</span>
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Search toggle + status */}
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  className="text-[10px] text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 rounded px-1.5 py-0.5 transition-colors"
+                                  onClick={() => {
+                                    if (wppEditSearch?.idx === i) {
+                                      setWppEditSearch(null);
+                                      setWppEditResults([]);
+                                    } else {
+                                      handleWppItemSearch(i, "");
+                                    }
+                                  }}
+                                >
+                                  {item.matched ? "trocar" : "buscar"}
+                                </button>
+                                <span className={`text-xs font-bold ${item.matched ? "text-emerald-500" : "text-red-500"}`}>
+                                  {item.matched ? "✓" : "✗"}
+                                </span>
+                              </div>
                             </div>
-                            <span className={`text-xs font-bold shrink-0 ${item.matched ? "text-emerald-500" : "text-red-500"}`}>
-                              {item.matched ? "✓" : "✗"}
-                            </span>
+
+                            {/* Inline search panel */}
+                            {wppEditSearch?.idx === i && (
+                              <div className="border-t border-slate-700 p-2 bg-slate-900/60 space-y-1">
+                                <Input
+                                  autoFocus
+                                  placeholder="Buscar produto no catálogo..."
+                                  value={wppEditSearch.query}
+                                  onChange={e => handleWppItemSearch(i, e.target.value)}
+                                  className="h-7 text-xs bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+                                />
+                                {wppEditResults.length > 0 && (
+                                  <div className="bg-slate-800 rounded border border-slate-700 max-h-36 overflow-y-auto">
+                                    {wppEditResults.map(r => (
+                                      <button
+                                        key={r.id}
+                                        className="w-full text-left px-2 py-1.5 text-xs text-slate-200 hover:bg-indigo-600 transition-colors"
+                                        onClick={() => updateWppProduct(i, r)}
+                                      >
+                                        {r.name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                {wppEditSearch.query.length >= 2 && wppEditResults.length === 0 && (
+                                  <p className="text-[10px] text-slate-600 px-1">Nenhum produto encontrado.</p>
+                                )}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
-                      {wppResult.some(r => r.matched) && (
+                      {wppResult.length > 0 && (
                         <div className="pt-3 border-t border-slate-800 space-y-3">
                           <p className="text-sm font-medium text-slate-300">Dados do pedido</p>
                           <div className="flex rounded-lg border border-slate-700 overflow-hidden h-10">
