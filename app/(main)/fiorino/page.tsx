@@ -343,6 +343,7 @@ export default function FiorinoPage() {
   const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) =>
     placeBox(e.clientX, e.clientY), [placeBox]);
   const handleCanvasTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault(); // evita ghost click sintetizado pelo browser após onTouchEnd
     const t = e.changedTouches[0];
     if (t) placeBox(t.clientX, t.clientY);
   }, [placeBox]);

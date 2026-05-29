@@ -61,23 +61,40 @@ function extractFragments(text: string): { qty: number; rawText: string }[] {
   }
   if (positions.length === 0) return [];
 
-  const results: { qty: number; rawText: string }[] = [];
-  for (let i = 0; i < positions.length; i++) {
-    const { qty, textStart } = positions[i];
-    const end = i + 1 < positions.length ? positions[i + 1].numStart : text.length;
-    let fragment = text.slice(textStart, end).trim();
-
-    const stopMatch = WPP_STOP_RE.exec(fragment);
-    if (stopMatch) fragment = fragment.slice(0, stopMatch.index);
-
-    fragment = fragment
+  const cleanup = (raw: string): string => {
+    let f = raw.trim();
+    const stop = WPP_STOP_RE.exec(f);
+    if (stop) f = f.slice(0, stop.index);
+    return f
       .replace(/[,;!?.\s]+$/, "")
       .replace(/\s+e\s*$/, "")
       .replace(/^(?:combos?\s+(?:de\s+)?|unidades?\s+(?:de\s+)?|caixas?\s+(?:de\s+)?|exemplares?\s+(?:de\s+)?|volumes?\s+(?:de\s+)?)/i, "")
       .replace(/^(?:da\s+|do\s+|de\s+|dos\s+|das\s+|um\s+|uma\s+)/i, "")
       .trim();
+  };
+
+  const results: { qty: number; rawText: string }[] = [];
+  let i = 0;
+  while (i < positions.length) {
+    const { qty, textStart } = positions[i];
+    const end = i + 1 < positions.length ? positions[i + 1].numStart : text.length;
+    const fragment = cleanup(text.slice(textStart, end));
+
+    // Fragmento muito curto = apenas separador (ex: "1 - 21 dias" → fragmento "-").
+    // O próximo número faz parte do nome do produto, não é uma quantidade.
+    // Mescla: usa qty atual + "{próximo número} {próximo fragmento}" como rawText.
+    if (fragment.length < 2 && i + 1 < positions.length) {
+      const next = positions[i + 1];
+      const nextEnd = i + 2 < positions.length ? positions[i + 2].numStart : text.length;
+      const nextFragment = cleanup(text.slice(next.textStart, nextEnd));
+      const merged = `${next.qty} ${nextFragment}`.trim();
+      if (merged.length >= 2) results.push({ qty, rawText: merged });
+      i += 2;
+      continue;
+    }
 
     if (fragment.length >= 2) results.push({ qty, rawText: fragment });
+    i++;
   }
   return results;
 }
@@ -85,11 +102,17 @@ function extractFragments(text: string): { qty: number; rawText: string }[] {
 // Parser local completo (fallback quando IA não está disponível)
 function parseWppMessage(text: string, products: Product[]): WppItem[] {
   if (products.length === 0) return [];
-  return extractFragments(text).map(f => ({
-    qty: f.qty,
-    rawText: f.rawText,
-    matched: findBestMatch(f.rawText, products),
-  }));
+  return extractFragments(text).map(f => {
+    const matched = findBestMatch(f.rawText, products);
+    // Se o nome do produto começa com o número capturado como qty mas o rawText
+    // não começa com esse número, o número era parte do nome, não a quantidade.
+    // Ex: rawText="dias para mudar", qty=21, produto="21 Dias para Mudar" → qty=1.
+    let qty = f.qty;
+    if (matched && !f.rawText.trim().startsWith(String(f.qty))) {
+      if (new RegExp(`^${f.qty}\\b`, 'i').test(matched.name)) qty = 1;
+    }
+    return { qty, rawText: f.rawText, matched };
+  });
 }
 
 export default function OrdersPage() {
@@ -575,6 +598,19 @@ export default function OrdersPage() {
     }
   };
 
+  const updateItemQuantity = async (idx: number, newQty: number) => {
+    if (!separatingOrder || newQty < 1) return;
+    const newItems = separatingOrder.items.map((it, i) =>
+      i === idx ? { ...it, quantity: newQty } : it
+    );
+    try {
+      await updateOrder(separatingOrder.id, { items: newItems });
+      setSeparatingOrder({ ...separatingOrder, items: newItems });
+    } catch {
+      alert("Erro ao atualizar quantidade.");
+    }
+  };
+
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>, type: 'item' | 'packed') => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -646,7 +682,14 @@ export default function OrdersPage() {
                     Campanha: {separatingOrder.campaignCode} | Destino: {separatingOrder.destinationCity}
                   </CardDescription>
                 </div>
-                <Button variant="outline" onClick={() => setSeparatingOrder(null)}>Voltar</Button>
+                <div className="flex items-center gap-2">
+                  {separatingOrder.status !== 'closed' && separatingOrder.status !== 'shipped' && (
+                    <Button size="sm" variant="ghost" onClick={() => openEditOrder(separatingOrder)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={() => setSeparatingOrder(null)}>Voltar</Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -671,11 +714,26 @@ export default function OrdersPage() {
                         className="flex-1 cursor-pointer select-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                       >
                         <span className={`text-sm font-semibold leading-snug ${item.isSeparated ? "text-slate-400 line-through" : "text-white"}`}>
-                          <span className="text-indigo-400 mr-1.5">{item.quantity}×</span>
+                          {(separatingOrder.status === 'closed' || separatingOrder.status === 'shipped') && (
+                            <span className="text-indigo-400 mr-1.5">{item.quantity}×</span>
+                          )}
                           {item.name}
                         </span>
                         <p className="text-[10px] text-slate-600 mt-0.5 hidden sm:block">{item.productId}</p>
                       </label>
+                      {separatingOrder.status !== 'closed' && separatingOrder.status !== 'shipped' && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            className="h-6 w-6 flex items-center justify-center rounded border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 text-base leading-none"
+                            onClick={() => updateItemQuantity(idx, Math.max(1, item.quantity - 1))}
+                          >−</button>
+                          <span className="text-indigo-400 text-sm font-bold w-6 text-center">{item.quantity}</span>
+                          <button
+                            className="h-6 w-6 flex items-center justify-center rounded border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 text-base leading-none"
+                            onClick={() => updateItemQuantity(idx, item.quantity + 1)}
+                          >+</button>
+                        </div>
+                      )}
                       {item.photoUrl && (
                         <div
                           className="h-12 w-12 border border-slate-700 rounded-lg overflow-hidden cursor-pointer hover:opacity-75 transition-opacity shrink-0"
@@ -711,7 +769,9 @@ export default function OrdersPage() {
                 />
                 <Select value={filterStatus} onValueChange={v => setFilterStatus(v ?? "all")}>
                   <SelectTrigger className="w-full sm:w-44 bg-slate-900 border-slate-700 text-slate-200 h-9">
-                    <SelectValue />
+                    <SelectValue>
+                      {filterStatus === "all" ? "Todos os status" : filterStatus === "pending" ? "Pendente" : filterStatus === "separating" ? "Separando" : filterStatus === "closed" ? "Fechado" : "Enviado"}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos os status</SelectItem>
@@ -750,7 +810,7 @@ export default function OrdersPage() {
                       <TableHead>Cliente</TableHead>
                       <TableHead>Itens</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-center">Ação</TableHead>
+                      <TableHead className="text-right">Ação</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -771,27 +831,22 @@ export default function OrdersPage() {
                             {statusMap[order.status].label}
                           </span>
                         </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex items-center justify-center gap-1">
-                          {(order.status === 'pending' || order.status === 'separating') && (
-                            <Button size="sm" variant="ghost" onClick={() => openEditOrder(order)}>
-                              <Pencil className="h-4 w-4" />
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1">
+                            {canDelete(order) && (
+                              <Button
+                                size="sm" variant="ghost"
+                                disabled={deletingOrderId === order.id}
+                                onClick={() => handleDeleteOrder(order)}
+                                className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button size="sm" variant="ghost" disabled={loadingOrderId === order.id} onClick={() => openSeparationView(order)}>
+                              {loadingOrderId === order.id ? "..." : order.status === 'pending' || order.status === 'separating' ? "Separar" : "Visualizar"}
+                              <ChevronRight className="ml-2 h-4 w-4" />
                             </Button>
-                          )}
-                          {canDelete(order) && (
-                            <Button
-                              size="sm" variant="ghost"
-                              disabled={deletingOrderId === order.id}
-                              onClick={() => handleDeleteOrder(order)}
-                              className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                          <Button size="sm" variant="ghost" disabled={loadingOrderId === order.id} onClick={() => openSeparationView(order)}>
-                            {loadingOrderId === order.id ? "..." : order.status === 'pending' || order.status === 'separating' ? "Separar" : "Visualizar"}
-                            <ChevronRight className="ml-2 h-4 w-4" />
-                          </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -833,11 +888,6 @@ export default function OrdersPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
-                      {(order.status === 'pending' || order.status === 'separating') && (
-                        <Button size="sm" variant="ghost" onClick={() => openEditOrder(order)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      )}
                       {canDelete(order) && (
                         <Button
                           size="sm" variant="ghost"
