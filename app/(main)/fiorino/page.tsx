@@ -70,6 +70,59 @@ function canPlace(x: number, y: number, z: number, w: number, h: number, d: numb
       && y + h <= CARGO.opHeight + 0.001;
 }
 
+// Snap to nearest wall/box edge, strongly preferring positions that don't
+// overlap existing boxes in XZ (side-by-side > stacking).
+function snapPosition(
+  cx: number, cz: number,
+  bw: number, bd: number,
+  boxes: PlacedBox[],
+): { x: number; z: number } {
+  const clampX = (x: number) => Math.max(0, Math.min(CARGO.width  - bw, x));
+  const clampZ = (z: number) => Math.max(0, Math.min(CARGO.length - bd, z));
+
+  const nx = clampX(cx - bw / 2);
+  const nz = clampZ(cz - bd / 2);
+
+  const xSet = new Set<number>([0, CARGO.width - bw]);
+  const zSet = new Set<number>([0, CARGO.length - bd]);
+
+  // Arch edges as snap candidates
+  xSet.add(ARCH_LEFT.x + ARCH_LEFT.w);       // borda direita do arco esq
+  xSet.add(ARCH_RIGHT.x - bw);               // borda esquerda do arco dir
+  zSet.add(ARCH_LEFT.z - bd);                // frente dos arcos
+  zSet.add(ARCH_LEFT.z + ARCH_LEFT.d);       // atrás dos arcos
+
+  for (const box of boxes) {
+    const { w: ebw, d: ebd } = getBoxDimsM(box.size, box.orientation);
+    xSet.add(box.x + ebw);
+    xSet.add(box.x - bw);
+    zSet.add(box.z + ebd);
+    zSet.add(box.z - bd);
+  }
+
+  let bestX = nx, bestZ = nz, bestScore = Infinity;
+  for (const rx of xSet) {
+    const x = clampX(rx);
+    for (const rz of zSet) {
+      const z = clampZ(rz);
+      const dist = Math.hypot(x - nx, z - nz);
+
+      const overlapsBox = boxes.some(b => {
+        const { w: ebw, d: ebd } = getBoxDimsM(b.size, b.orientation);
+        return overlapsXZ(x, z, bw, bd, b.x, b.z, ebw, ebd);
+      });
+      const overlapsArch =
+        overlapsXZ(x, z, bw, bd, ARCH_LEFT.x,  ARCH_LEFT.z,  ARCH_LEFT.w,  ARCH_LEFT.d) ||
+        overlapsXZ(x, z, bw, bd, ARCH_RIGHT.x, ARCH_RIGHT.z, ARCH_RIGHT.w, ARCH_RIGHT.d);
+
+      const score = dist + (overlapsBox ? 10 : 0) + (overlapsArch ? 10 : 0);
+      if (score < bestScore) { bestScore = score; bestX = x; bestZ = z; }
+    }
+  }
+
+  return { x: bestX, z: bestZ };
+}
+
 // ── 2-D top-down floor plan ──────────────────────────────────────────────────
 function drawFloorPlan(
   canvas: HTMLCanvasElement,
@@ -161,11 +214,10 @@ function drawFloorPlan(
     }
   }
 
-  // Hover ghost
+  // Hover ghost — shows snapped position
   if (hover) {
     const { w: bw, h: bh, d: bd } = getBoxDimsM(selectedSize, orientation);
-    const cx = Math.max(0, Math.min(CARGO.width  - bw, hover.x - bw / 2));
-    const cz = Math.max(0, Math.min(CARGO.length - bd, hover.z - bd / 2));
+    const { x: cx, z: cz } = snapPosition(hover.x, hover.z, bw, bd, boxes);
     const y  = findStackY(cx, cz, bw, bd, boxes);
     const ok = canPlace(cx, y, cz, bw, bh, bd);
     const gx = px(cx), gz = pz(cz), gw = bw * sX, gh = bd * sZ;
@@ -274,8 +326,7 @@ export default function FiorinoPage() {
     const pos = getCanvasPos(clientX, clientY);
     if (!pos) return;
     const { w: bw, h: bh, d: bd } = getBoxDimsM(selectedSize, orientation);
-    const cx = Math.max(0, Math.min(CARGO.width  - bw, pos.x - bw / 2));
-    const cz = Math.max(0, Math.min(CARGO.length - bd, pos.z - bd / 2));
+    const { x: cx, z: cz } = snapPosition(pos.x, pos.z, bw, bd, boxes);
     const y  = findStackY(cx, cz, bw, bd, boxes);
     if (!canPlace(cx, y, cz, bw, bh, bd)) return;
     setBoxes(prev => [...prev, {
@@ -384,7 +435,7 @@ export default function FiorinoPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-white">Fiorino</h1>
-          <p className="text-xs text-slate-500">1,90 × 1,32 × 1,34 m</p>
+          <p className="text-xs text-slate-500">1,90 × 1,50 × 1,34 m</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
@@ -460,21 +511,23 @@ export default function FiorinoPage() {
                   </div>
                 </div>
 
-                {/* Orientation selector */}
+                {/* Direction selector */}
                 <div className="shrink-0 flex flex-col gap-1.5">
                   <SectionLabel>
-                    Orientação
+                    Direção
                     <span className="ml-2 normal-case font-normal text-slate-500 tracking-normal">
                       {dimW.toFixed(2)}×{dimH.toFixed(2)}×{dimD.toFixed(2)} m
                     </span>
                   </SectionLabel>
                   <div className="flex gap-1.5">
-                    {(["vertical", "horizontal"] as Orientation[]).map(o => (
-                      <SelBtn key={o} active={orientation === o}
-                        onClick={() => setOrientation(o)} className="flex-1 py-2">
-                        {o === "vertical" ? "↑ Vertical" : "↔ Horizontal"}
-                      </SelBtn>
-                    ))}
+                    <SelBtn active={orientation === "vertical"}
+                      onClick={() => setOrientation("vertical")} className="flex-1 py-2">
+                      ↕ Frente-fundo
+                    </SelBtn>
+                    <SelBtn active={orientation === "horizontal"}
+                      onClick={() => setOrientation("horizontal")} className="flex-1 py-2">
+                      ↔ Lado-a-lado
+                    </SelBtn>
                   </div>
                 </div>
 
@@ -483,7 +536,7 @@ export default function FiorinoPage() {
                   <SectionLabel>Planta baixa — clique para posicionar</SectionLabel>
                   <canvas
                     ref={canvasRef}
-                    className="flex-1 min-h-[130px] rounded-lg cursor-crosshair touch-none border border-slate-800"
+                    className="w-full aspect-[15/19] rounded-lg cursor-crosshair touch-none border border-slate-800 md:flex-1 md:aspect-auto"
                     onMouseMove={handleCanvasMove}
                     onMouseLeave={handleCanvasLeave}
                     onClick={handleCanvasClick}

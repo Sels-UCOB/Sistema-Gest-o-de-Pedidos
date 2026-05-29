@@ -20,10 +20,10 @@ export interface PlacedBox {
 
 // Real physical dimensions: [width(X), height(Y), depth(Z)] in metres
 export const BOX_DIMS_M: Record<BoxType, [number, number, number]> = {
-  PA: [0.30, 0.21, 0.25],
-  MA: [0.44, 0.21, 0.30],
+  PA: [0.25, 0.21, 0.30],
+  MA: [0.30, 0.21, 0.44],
   MB: [0.26, 0.38, 0.36],
-  G:  [0.75, 0.56, 0.43],
+  G:  [0.43, 0.56, 0.75],
 };
 
 // Returns real dimensions in metres (swapping W↔D for horizontal)
@@ -36,23 +36,23 @@ export function getBoxDimsM(type: BoxType, orientation: BoxOrientation) {
 
 // Returns dimensions in Three.js units (SCALE applied)
 export function getRealDims(type: BoxType, orientation: BoxOrientation) {
-  const s = 4.0 / 1.32;
+  const s = 4.0 / 1.50;
   const { w, h, d } = getBoxDimsM(type, orientation);
   return { w: w * s, h: h * s, d: d * s };
 }
 
 // ── Compartment constants (exported for canvas drawing) ─────────────────────
-export const CARGO = { width: 1.32, length: 1.90, height: 1.34, opHeight: 1.10 } as const;
+export const CARGO = { width: 1.50, length: 1.90, height: 1.34, opHeight: 1.10 } as const;
 
 // Wheel arch volumes in real metres (origin = cab-left-floor corner)
 // Both arches start 0.47 m from the door → z0 = 1.90 − 0.47 − 0.74 = 0.69 m from cab
 export const ARCH_LEFT  = { x: 0,    z: 0.69, w: 0.12, d: 0.74, hMax: 0.43 } as const;
-export const ARCH_RIGHT = { x: 1.20, z: 0.69, w: 0.12, d: 0.74, hMax: 0.32 } as const;
+export const ARCH_RIGHT = { x: 1.38, z: 0.69, w: 0.12, d: 0.74, hMax: 0.32 } as const;
 
 // Fiorino: 1.32 m wide × 1.90 m long × 1.34 m tall
 // Grid: 4 cols × 6 rows × 5 levels (operational height 1.10 m)
 // Scale: 4.0 ÷ 1.32 ≈ 3.03 Three.js units per metre
-const SCALE  = 4.0 / 1.32;          // ≈ 3.030 u/m
+const SCALE  = 4.0 / 1.50;          // ≈ 2.667 u/m
 
 const COLS   = 4;
 const ROWS   = 6;
@@ -86,17 +86,6 @@ const ZOOM_DEFAULT = 1.0;
 const ZOOM_MIN     = 0.35;
 const ZOOM_MAX     = 3.2;
 
-function makeLabel(text: string, px = 72): THREE.Sprite {
-  const c = document.createElement("canvas");
-  c.width = px; c.height = px;
-  const ctx = c.getContext("2d")!;
-  ctx.font = `bold ${px * 0.44}px sans-serif`;
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillStyle = "#94a3b8";
-  ctx.fillText(text, px / 2, px / 2);
-  const mat = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false });
-  return new THREE.Sprite(mat);
-}
 
 interface Props { boxes: PlacedBox[] }
 
@@ -382,7 +371,7 @@ export default function FiorinoViewer({ boxes }: Props) {
     for (const box of boxes) {
       // Render at real physical size — snap anchor stays at grid corner
       const { w: bw, h: bh, d: bd } = getRealDims(box.size, box.orientation);
-      const gap = 0.02; // small inset so adjacent boxes don't z-fight
+      const gap = 0.004;
       const geo = new THREE.BoxGeometry(bw - gap, bh - gap, bd - gap);
       const mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({
         color: new THREE.Color(box.color), transparent: true, opacity: 0.90, shininess: 60,
