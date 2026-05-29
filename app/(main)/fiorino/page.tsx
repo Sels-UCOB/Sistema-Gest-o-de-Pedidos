@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useConfirm } from "@/hooks/use-confirm";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { X, RotateCcw, Save, Upload, Trash2 } from "lucide-react";
+import { X, RotateCcw, Save, Upload, Trash2, ArrowLeft, Edit2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -214,26 +214,56 @@ function drawFloorPlan(
     }
   }
 
-  // Hover ghost — shows snapped position
+  // Hover ghost — shows snapped position or removal indicator
   if (hover) {
-    const { w: bw, h: bh, d: bd } = getBoxDimsM(selectedSize, orientation);
-    const { x: cx, z: cz } = snapPosition(hover.x, hover.z, bw, bd, boxes);
-    const y  = findStackY(cx, cz, bw, bd, boxes);
-    const ok = canPlace(cx, y, cz, bw, bh, bd);
-    const gx = px(cx), gz = pz(cz), gw = bw * sX, gh = bd * sZ;
-    ctx.fillStyle = ok ? "rgba(99,102,241,0.30)" : "rgba(239,68,68,0.30)";
-    ctx.fillRect(gx, gz, gw, gh);
-    ctx.setLineDash([4, 3]);
-    ctx.strokeStyle = ok ? "#818cf8" : "#f87171";
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(gx, gz, gw, gh);
-    ctx.setLineDash([]);
-    if (ok && gh > 12 && gw > 24) {
-      ctx.fillStyle = "#818cf8";
-      ctx.font = "8px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(y > 0.01 ? `+${y.toFixed(2)}m` : "chão", gx + gw / 2, gz + gh / 2);
+    const hoveredBox = boxes
+      .filter(b => {
+        const { w: bw, d: bd } = getBoxDimsM(b.size, b.orientation);
+        return hover.x >= b.x && hover.x <= b.x + bw && hover.z >= b.z && hover.z <= b.z + bd;
+      })
+      .sort((a, b) => {
+        const { h: ah } = getBoxDimsM(a.size, a.orientation);
+        const { h: bh } = getBoxDimsM(b.size, b.orientation);
+        return (b.y + bh) - (a.y + ah);
+      })[0] ?? null;
+
+    if (hoveredBox) {
+      // Show removal indicator on the hovered box
+      const { w: bw, d: bd } = getBoxDimsM(hoveredBox.size, hoveredBox.orientation);
+      const bpx = px(hoveredBox.x), bpz = pz(hoveredBox.z), bpw = bw * sX, bph = bd * sZ;
+      ctx.fillStyle = "rgba(239,68,68,0.35)";
+      ctx.fillRect(bpx, bpz, bpw, bph);
+      ctx.strokeStyle = "#f87171";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(bpx, bpz, bpw, bph);
+      // Draw X in the center
+      const cx2 = bpx + bpw / 2, cz2 = bpz + bph / 2, arm = Math.min(bpw, bph) * 0.22;
+      ctx.strokeStyle = "#f87171";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx2 - arm, cz2 - arm); ctx.lineTo(cx2 + arm, cz2 + arm);
+      ctx.moveTo(cx2 + arm, cz2 - arm); ctx.lineTo(cx2 - arm, cz2 + arm);
+      ctx.stroke();
+    } else {
+      const { w: bw, h: bh, d: bd } = getBoxDimsM(selectedSize, orientation);
+      const { x: cx, z: cz } = snapPosition(hover.x, hover.z, bw, bd, boxes);
+      const y  = findStackY(cx, cz, bw, bd, boxes);
+      const ok = canPlace(cx, y, cz, bw, bh, bd);
+      const gx = px(cx), gz = pz(cz), gw = bw * sX, gh = bd * sZ;
+      ctx.fillStyle = ok ? "rgba(99,102,241,0.30)" : "rgba(239,68,68,0.30)";
+      ctx.fillRect(gx, gz, gw, gh);
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = ok ? "#818cf8" : "#f87171";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(gx, gz, gw, gh);
+      ctx.setLineDash([]);
+      if (ok && gh > 12 && gw > 24) {
+        ctx.fillStyle = "#818cf8";
+        ctx.font = "8px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(y > 0.01 ? `+${y.toFixed(2)}m` : "chão", gx + gw / 2, gz + gh / 2);
+      }
     }
   }
 }
@@ -295,6 +325,7 @@ export default function FiorinoPage() {
   const [plans, setPlans] = useState<FiorinoPlan[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("posicionar");
+  const [viewingPlan, setViewingPlan] = useState<FiorinoPlan | null>(null);
 
   // Volume-based occupancy
   const usedVolume = useMemo(() =>
@@ -325,6 +356,24 @@ export default function FiorinoPage() {
   const placeBox = useCallback((clientX: number, clientY: number) => {
     const pos = getCanvasPos(clientX, clientY);
     if (!pos) return;
+
+    // Clicking on an existing box → remove the top-most one at that XZ position
+    const hit = boxes
+      .filter(b => {
+        const { w: bw, d: bd } = getBoxDimsM(b.size, b.orientation);
+        return pos.x >= b.x && pos.x <= b.x + bw && pos.z >= b.z && pos.z <= b.z + bd;
+      })
+      .sort((a, b) => {
+        const { h: ah } = getBoxDimsM(a.size, a.orientation);
+        const { h: bh } = getBoxDimsM(b.size, b.orientation);
+        return (b.y + bh) - (a.y + ah);
+      });
+
+    if (hit.length > 0) {
+      setBoxes(prev => prev.filter(b => b.id !== hit[0].id));
+      return;
+    }
+
     const { w: bw, h: bh, d: bd } = getBoxDimsM(selectedSize, orientation);
     const { x: cx, z: cz } = snapPosition(pos.x, pos.z, bw, bd, boxes);
     const y  = findStackY(cx, cz, bw, bd, boxes);
@@ -413,10 +462,11 @@ export default function FiorinoPage() {
     }
   };
 
-  const handleLoadPlan = (plan: FiorinoPlan) => {
+  const handleLoadPlanIntoEditor = (plan: FiorinoPlan) => {
     const validBoxes = (plan.boxes as PlacedBox[]).filter(b => typeof b.x === "number");
     setBoxes(validBoxes);
     colorIndex = validBoxes.length % BOX_COLORS.length;
+    setViewingPlan(null);
     setActiveTab("posicionar");
   };
 
@@ -424,6 +474,71 @@ export default function FiorinoPage() {
     return (
       <div className="flex h-48 items-center justify-center">
         <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // ── Modo visualização de plano salvo ──────────────────────────────────────
+  if (viewingPlan) {
+    const viewBoxes = (viewingPlan.boxes as PlacedBox[]).filter(b => typeof b.x === "number");
+    const viewOccupancy = viewingPlan.occupancyPct;
+    return (
+      <div className="flex flex-col gap-3">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setViewingPlan(null)}
+            className="p-2 rounded-xl border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:border-slate-500 transition-colors shrink-0"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-white">
+              {viewingPlan.date} · {viewingPlan.type}
+              {viewingPlan.campaignCode ? ` · ${viewingPlan.campaignCode}` : ""}
+            </p>
+            <p className="text-xs text-slate-400">
+              {viewBoxes.length} {viewBoxes.length === 1 ? "caixa" : "caixas"} · {viewOccupancy}% ocupado
+            </p>
+          </div>
+          <button
+            onClick={() => handleLoadPlanIntoEditor(viewingPlan)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-colors text-xs font-medium shrink-0"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+            Editar
+          </button>
+        </div>
+
+        {/* 3D Viewer — full width */}
+        <div className="rounded-2xl overflow-hidden border border-slate-800 bg-slate-900/40
+                        h-[70vw] min-h-[260px] max-h-[520px]">
+          <FiorinoViewer boxes={viewBoxes} />
+        </div>
+
+        {/* Notas */}
+        {viewingPlan.notes && (
+          <p className="text-xs text-slate-500 px-1">{viewingPlan.notes}</p>
+        )}
+
+        {/* Lista de caixas */}
+        {viewBoxes.length > 0 && (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3 flex flex-col gap-2">
+            {viewBoxes.map(box => (
+              <div key={box.id}
+                className="flex items-center gap-3 rounded-xl border border-slate-700/50 bg-slate-800/40 px-3 py-2.5">
+                <div className="w-3.5 h-3.5 rounded shrink-0" style={{ backgroundColor: box.color }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{box.label}</p>
+                  <p className="text-xs text-slate-400">
+                    {SIZE_LABELS[box.size]} · {box.orientation === "vertical" ? "↑ Vert." : "↔ Horiz."}
+                    {box.y > 0.01 ? ` · +${box.y.toFixed(2)}m` : " · chão"}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -534,7 +649,7 @@ export default function FiorinoPage() {
 
                 {/* 2D floor plan — fills remaining space on desktop */}
                 <div className="flex flex-col gap-1.5 md:flex-1 md:min-h-0">
-                  <SectionLabel>Planta baixa — clique para posicionar</SectionLabel>
+                  <SectionLabel>Planta baixa · toque para posicionar/remover</SectionLabel>
                   <canvas
                     ref={canvasRef}
                     className="w-full h-[200px] rounded-lg cursor-crosshair touch-none border border-slate-800 md:flex-1 md:h-auto"
@@ -613,9 +728,9 @@ export default function FiorinoPage() {
                         {plan.notes && <p className="text-xs text-slate-500 mt-0.5 truncate">{plan.notes}</p>}
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <button onClick={() => handleLoadPlan(plan)}
+                        <button onClick={() => setViewingPlan(plan)}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-indigo-500/10 transition-colors"
-                          title="Carregar plano">
+                          title="Visualizar plano">
                           <Upload className="w-3.5 h-3.5" />
                         </button>
                         <button onClick={() => handleDeletePlan(plan.id)}

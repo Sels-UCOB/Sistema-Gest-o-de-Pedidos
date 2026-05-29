@@ -446,8 +446,23 @@ export async function getFiorinoPlans(): Promise<FiorinoPlan[]> {
   return (data ?? []).map(mapFiorinoPlan);
 }
 
+const MAX_FIORINO_PLANS = 5;
+
 export async function addFiorinoPlan(plan: Omit<FiorinoPlan, "id" | "createdAt">): Promise<FiorinoPlan> {
   const { data: { session } } = await supabase.auth.getSession();
+
+  // Enforce cap: delete oldest plans so total stays at MAX_FIORINO_PLANS after insert
+  const { data: existing } = await supabase
+    .from("fiorino_plans")
+    .select("id")
+    .order("created_at", { ascending: true });
+
+  if (existing && existing.length >= MAX_FIORINO_PLANS) {
+    const overflow = existing.slice(0, existing.length - MAX_FIORINO_PLANS + 1);
+    const ids = overflow.map((r: { id: string }) => r.id);
+    await supabase.from("fiorino_plans").delete().in("id", ids);
+  }
+
   const { data, error } = await supabase
     .from("fiorino_plans")
     .insert({

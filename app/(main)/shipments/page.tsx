@@ -405,7 +405,7 @@ export default function ShipmentsPage() {
                 </div>
 
                 <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-800">
-                  <Label className="mb-4 block text-slate-300">Pedidos Fechados Aguardando Envio</Label>
+                  <Label className="mb-4 block text-slate-300">Pedidos fechados aguardando envio</Label>
                   <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
                     {closedOrders.map(order => (
                       <div key={order.id} className="flex items-start space-x-3 bg-slate-800/40 p-3 border border-slate-800 rounded shadow-sm">
