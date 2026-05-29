@@ -356,6 +356,28 @@ export async function updateProfile(id: string, updates: Partial<Pick<ProfileRow
   if (error) throw error;
 }
 
+// ─── Storage: Photo Cleanup ──────────────────────────────────────────────────
+
+function urlToStoragePath(url: string): string | null {
+  const marker = "/order-photos/";
+  const idx = url.indexOf(marker);
+  if (idx === -1) return null;
+  return url.slice(idx + marker.length);
+}
+
+export async function deleteOrderPhotos(photoUrls: string[]): Promise<void> {
+  const paths = photoUrls.map(urlToStoragePath).filter(Boolean) as string[];
+  if (paths.length === 0) return;
+  await supabase.storage.from("order-photos").remove(paths);
+}
+
+export async function deleteOrderAllPhotos(orderId: string): Promise<void> {
+  const { data } = await supabase.storage.from("order-photos").list(`orders/${orderId}`);
+  if (!data || data.length === 0) return;
+  const paths = data.map(f => `orders/${orderId}/${f.name}`);
+  await supabase.storage.from("order-photos").remove(paths);
+}
+
 // ─── Storage: Photo Upload ───────────────────────────────────────────────────
 
 /**

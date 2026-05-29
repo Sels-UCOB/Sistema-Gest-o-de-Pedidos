@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useConfirm } from "@/hooks/use-confirm";
 import { Order, OrderItem, Product } from "@/lib/db";
-import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deleteOrder, deductInventoryStock, getInventory, uploadOrderPhoto } from "@/lib/supabase-db";
+import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deleteOrder, deductInventoryStock, getInventory, uploadOrderPhoto, deleteOrderPhotos, deleteOrderAllPhotos } from "@/lib/supabase-db";
 import type { InventoryRow } from "@/lib/supabase-db";
 
 // ── Cache local (stale-while-revalidate) ─────────────────────────────────────
@@ -351,7 +351,7 @@ export default function OrdersPage() {
     setDeletingOrderId(order.id);
     try {
       await deleteOrder(order.id);
-      // Atualiza estado E cache para que o refresh não traga o pedido de volta
+      deleteOrderAllPhotos(order.id).catch(() => {});
       setOrders(prev => {
         const updated = (prev ?? []).filter(o => o.id !== order.id);
         cacheWrite(CK_ORDERS, updated);
@@ -371,9 +371,13 @@ export default function OrdersPage() {
   const [editDestinationCity, setEditDestinationCity] = useState("");
   const [editItems, setEditItems] = useState<OrderItem[]>([]);
   const [editSaving, setEditSaving] = useState(false);
+  const [editAddSearch, setEditAddSearch] = useState("");
+  const [editAddResults, setEditAddResults] = useState<Product[]>([]);
+  const [editKnownPhotoUrls, setEditKnownPhotoUrls] = useState<Set<string>>(new Set());
 
   const openEditOrder = async (order: Order) => {
-    // Sempre carrega o pedido completo para preservar photoUrls dos itens já separados
+    setEditAddSearch("");
+    setEditAddResults([]);
     try {
       const full = await getOrderFull(order.id);
       setEditingOrder(full);
@@ -381,13 +385,14 @@ export default function OrdersPage() {
       setEditCampaignCode(full.campaignCode);
       setEditDestinationCity(full.destinationCity);
       setEditItems(full.items.map(i => ({ ...i })));
+      setEditKnownPhotoUrls(new Set(full.items.map(i => i.photoUrl).filter(Boolean) as string[]));
     } catch {
-      // Fallback para o objeto slim se o fetch falhar
       setEditingOrder(order);
       setEditCustomerName(order.customerName);
       setEditCampaignCode(order.campaignCode);
       setEditDestinationCity(order.destinationCity);
       setEditItems(order.items.map(i => ({ ...i })));
+      setEditKnownPhotoUrls(new Set());
     }
   };
 
@@ -399,13 +404,35 @@ export default function OrdersPage() {
     if (editItems.length === 0) { alert("O pedido precisa ter ao menos um item."); return; }
     setEditSaving(true);
     try {
+      const newPhotoUrls = new Set(editItems.map(i => i.photoUrl).filter(Boolean));
+      const orphanedPhotos = [...editKnownPhotoUrls].filter(url => !newPhotoUrls.has(url));
+
       await updateOrder(editingOrder.id, {
         customerName: editCustomerName,
         campaignCode: editCampaignCode,
         destinationCity: editDestinationCity,
         items: editItems,
       });
+
+      if (orphanedPhotos.length > 0) {
+        deleteOrderPhotos(orphanedPhotos).catch(() => {});
+      }
+
       setEditingOrder(null);
+      setEditAddSearch("");
+      setEditAddResults([]);
+      setEditKnownPhotoUrls(new Set());
+      if (separatingOrder && separatingOrder.id === editingOrder.id) {
+        setSeparatingOrder(prev => {
+          if (!prev) return null;
+          const currentMap = new Map(prev.items.map(i => [i.productId, i]));
+          const mergedItems = editItems.map(edited => {
+            const current = currentMap.get(edited.productId);
+            return current ? { ...edited, isSeparated: current.isSeparated, photoUrl: current.photoUrl } : edited;
+          });
+          return { ...prev, customerName: editCustomerName, campaignCode: editCampaignCode, destinationCity: editDestinationCity, items: mergedItems };
+        });
+      }
       await loadOrders();
     } catch {
       alert("Erro ao salvar alterações.");
@@ -670,9 +697,9 @@ export default function OrdersPage() {
         <TabsContent value="list" className="mt-6">
           {separatingOrder && !packedPhotoQueue ? (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <CardTitle className="flex items-center gap-2 flex-wrap">
                     Separando Pedido: {separatingOrder.customerName}
                     {separatingOrder.tipo === "acerto" && (
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 uppercase tracking-wider">Acerto</span>
@@ -682,13 +709,13 @@ export default function OrdersPage() {
                     Campanha: {separatingOrder.campaignCode} | Destino: {separatingOrder.destinationCity}
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   {separatingOrder.status !== 'closed' && separatingOrder.status !== 'shipped' && (
                     <Button size="sm" variant="ghost" onClick={() => openEditOrder(separatingOrder)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
                   )}
-                  <Button variant="outline" onClick={() => setSeparatingOrder(null)}>Voltar</Button>
+                  <Button size="sm" variant="outline" onClick={() => setSeparatingOrder(null)}>Voltar</Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -711,9 +738,9 @@ export default function OrdersPage() {
                       />
                       <label
                         htmlFor={`item-${idx}`}
-                        className="flex-1 cursor-pointer select-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                        className="flex-1 min-w-0 cursor-pointer select-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                       >
-                        <span className={`text-sm font-semibold leading-snug ${item.isSeparated ? "text-slate-400 line-through" : "text-white"}`}>
+                        <span className={`text-sm font-semibold leading-snug block truncate ${item.isSeparated ? "text-slate-400 line-through" : "text-white"}`}>
                           {(separatingOrder.status === 'closed' || separatingOrder.status === 'shipped') && (
                             <span className="text-indigo-400 mr-1.5">{item.quantity}×</span>
                           )}
@@ -875,9 +902,9 @@ export default function OrdersPage() {
               <CardContent className="p-3 flex flex-col gap-3 md:hidden">
                 {filteredOrders.map(order => (
                   <div key={order.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-900/50">
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1 min-w-0 mr-2">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-white text-sm">{order.customerName}</span>
+                        <span className="font-bold text-white text-sm truncate">{order.customerName}</span>
                         {order.tipo === "acerto" && (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 uppercase tracking-wider">Acerto</span>
                         )}
@@ -1412,13 +1439,13 @@ export default function OrdersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editingOrder} onOpenChange={(open) => { if (!open) setEditingOrder(null); }}>
+      <Dialog open={!!editingOrder} onOpenChange={(open) => { if (!open) { setEditingOrder(null); setEditAddSearch(""); setEditAddResults([]); setEditKnownPhotoUrls(new Set()); } }}>
         <DialogContent className="max-w-lg border-slate-800 bg-slate-900">
           <DialogHeader>
             <DialogTitle className="text-white">Editar Pedido</DialogTitle>
             <DialogDescription className="text-slate-400">Altere os dados do pedido. Itens separados são preservados.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+          <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-200">Nome do Cliente</label>
               <Input value={editCustomerName} onChange={e => setEditCustomerName(e.target.value)} />
@@ -1440,8 +1467,8 @@ export default function OrdersPage() {
               <label className="text-sm font-medium text-slate-200">Itens</label>
               <div className="space-y-2">
                 {editItems.map((item, idx) => (
-                  <div key={idx} className="flex items-center gap-2 bg-slate-800 p-2 rounded-lg border border-slate-700">
-                    <div className="flex items-center gap-1">
+                  <div key={idx} className={`flex items-center gap-2 p-2 rounded-lg border ${item.isSeparated ? "bg-emerald-900/10 border-emerald-800/40" : "bg-slate-800 border-slate-700"}`}>
+                    <div className="flex items-center gap-1 shrink-0">
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => {
                         setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: Math.max(1, it.quantity - 1) } : it));
                       }}>−</Button>
@@ -1450,8 +1477,11 @@ export default function OrdersPage() {
                         setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: it.quantity + 1 } : it));
                       }}>+</Button>
                     </div>
-                    <span className="text-slate-200 text-sm flex-1 truncate">{item.name}</span>
-                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-300" onClick={() => {
+                    <span className={`text-sm flex-1 truncate ${item.isSeparated ? "text-emerald-400" : "text-slate-200"}`}>{item.name}</span>
+                    {item.isSeparated && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 shrink-0">separado</span>
+                    )}
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-300 shrink-0" onClick={() => {
                       setEditItems(prev => prev.filter((_, i) => i !== idx));
                     }}>
                       <Trash2 className="h-4 w-4" />
@@ -1460,6 +1490,48 @@ export default function OrdersPage() {
                 ))}
               </div>
             </div>
+          </div>
+          <div className="relative pt-2">
+            <Input
+              placeholder="Adicionar material..."
+              value={editAddSearch}
+              onChange={e => {
+                const q = e.target.value;
+                setEditAddSearch(q);
+                if (q.length >= 2 && products) {
+                  setEditAddResults(
+                    products
+                      .filter(p => p.name.toLowerCase().includes(q.toLowerCase()))
+                      .sort((a, b) =>
+                        (a.name.toLowerCase().startsWith(q.toLowerCase()) ? -1 : 1) -
+                        (b.name.toLowerCase().startsWith(q.toLowerCase()) ? -1 : 1)
+                      )
+                      .slice(0, 6)
+                  );
+                } else {
+                  setEditAddResults([]);
+                }
+              }}
+              className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+            />
+            {editAddResults.length > 0 && (
+              <div className="absolute z-20 bottom-full left-0 right-0 mb-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg overflow-hidden">
+                {editAddResults.map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                    onClick={() => {
+                      setEditItems(prev => [...prev, { productId: p.id, name: p.name, quantity: 1, isSeparated: false }]);
+                      setEditAddSearch("");
+                      setEditAddResults([]);
+                    }}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingOrder(null)}>Cancelar</Button>
