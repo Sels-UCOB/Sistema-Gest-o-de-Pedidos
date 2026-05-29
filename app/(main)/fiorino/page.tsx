@@ -468,7 +468,7 @@ export default function FiorinoPage() {
 
         {/* 3D Viewer */}
         <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-900/40
-                        h-[58vw] min-h-[210px] max-h-[320px]
+                        h-[50vw] min-h-[180px] max-h-[240px]
                         md:h-[600px] md:max-h-none md:flex-1">
           <FiorinoViewer boxes={boxes} />
         </div>
@@ -523,11 +523,11 @@ export default function FiorinoPage() {
                   <div className="flex gap-1.5">
                     <SelBtn active={orientation === "vertical"}
                       onClick={() => setOrientation("vertical")} className="flex-1 py-2">
-                      ↕ Frente-fundo
+                      Frente-fundo
                     </SelBtn>
                     <SelBtn active={orientation === "horizontal"}
                       onClick={() => setOrientation("horizontal")} className="flex-1 py-2">
-                      ↔ Lado-a-lado
+                      Lado-a-lado
                     </SelBtn>
                   </div>
                 </div>
@@ -537,7 +537,7 @@ export default function FiorinoPage() {
                   <SectionLabel>Planta baixa — clique para posicionar</SectionLabel>
                   <canvas
                     ref={canvasRef}
-                    className="w-full aspect-[15/19] rounded-lg cursor-crosshair touch-none border border-slate-800 md:flex-1 md:aspect-auto"
+                    className="w-full h-[200px] rounded-lg cursor-crosshair touch-none border border-slate-800 md:flex-1 md:h-auto"
                     onMouseMove={handleCanvasMove}
                     onMouseLeave={handleCanvasLeave}
                     onClick={handleCanvasClick}
