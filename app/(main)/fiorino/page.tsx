@@ -303,7 +303,7 @@ export default function FiorinoPage() {
   // ── Save plan state ──
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveDate, setSaveDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [saveType, setSaveType] = useState("entrega");
+  const saveType = "acerto";
   const [saveCampaignCode, setSaveCampaignCode] = useState("");
   const [saveNotes, setSaveNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -730,22 +730,6 @@ export default function FiorinoPage() {
               <label className="text-xs text-slate-400">Data</label>
               <Input type="date" value={saveDate} onChange={e => setSaveDate(e.target.value)}
                 className="bg-slate-800/60 border-slate-700 text-white" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-slate-400">Tipo</label>
-              <div className="flex gap-2">
-                {["entrega", "coleta", "outro"].map(t => (
-                  <button key={t} onClick={() => setSaveType(t)}
-                    className={cn(
-                      "flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors",
-                      saveType === t
-                        ? "bg-indigo-600 border-indigo-500 text-white"
-                        : "bg-slate-800/60 border-slate-700 text-slate-300 hover:border-slate-500"
-                    )}>
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
-                  </button>
-                ))}
-              </div>
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-xs text-slate-400">Código de Campanha (opcional)</label>
