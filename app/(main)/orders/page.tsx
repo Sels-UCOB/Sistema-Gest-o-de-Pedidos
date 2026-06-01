@@ -36,6 +36,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PageNav } from "@/components/ui/page-nav";
 import { Camera, Search, PlusCircle, ChevronRight, Package, Pencil, Trash2, Wand2 } from "lucide-react";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -150,7 +151,7 @@ export default function OrdersPage() {
 
   const loadOrders = useCallback(async () => {
     try {
-      const { orders: data, hasMore: more } = await getOrdersPaged(0);
+      const { orders: data, hasMore: more } = await getOrdersPaged(0, 15);
       setOrders(data);
       setHasMore(more);
       setCurrentPage(0);
@@ -162,14 +163,14 @@ export default function OrdersPage() {
     }
   }, []);
 
-  const loadMoreOrders = async () => {
+  const goToPage = async (n: number) => {
     setLoadingMore(true);
     try {
-      const next = currentPage + 1;
-      const { orders: data, hasMore: more } = await getOrdersPaged(next);
-      setOrders(prev => [...(prev ?? []), ...data]);
+      const { orders: data, hasMore: more } = await getOrdersPaged(n, 15);
+      setOrders(data);
       setHasMore(more);
-      setCurrentPage(next);
+      setCurrentPage(n);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch {
       // silent
     } finally {
@@ -891,13 +892,6 @@ export default function OrdersPage() {
                     )}
                   </TableBody>
                 </Table>
-                {hasMore && (
-                  <div className="flex justify-center p-4 border-t border-slate-800">
-                    <Button variant="outline" onClick={loadMoreOrders} disabled={loadingMore}>
-                      {loadingMore ? "Carregando..." : "Carregar mais"}
-                    </Button>
-                  </div>
-                )}
               </CardContent>
               <CardContent className="p-3 flex flex-col gap-3 md:hidden">
                 {filteredOrders.map(order => (
@@ -941,14 +935,14 @@ export default function OrdersPage() {
                         : "Nenhum pedido encontrado."}
                   </p>
                 )}
-                {hasMore && (
-                  <div className="flex justify-center pt-2 pb-1">
-                    <Button variant="outline" onClick={loadMoreOrders} disabled={loadingMore} className="w-full">
-                      {loadingMore ? "Carregando..." : "Carregar mais"}
-                    </Button>
-                  </div>
-                )}
               </CardContent>
+              <PageNav
+                page={currentPage}
+                pageSize={15}
+                hasMore={hasMore}
+                onChange={goToPage}
+                loading={loadingMore}
+              />
             </Card>
           )}
         </TabsContent>

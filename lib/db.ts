@@ -44,7 +44,7 @@ export interface Order {
 
 export interface Shipment {
   id: string;
-  type: "transportadora" | "presencial";
+  type: "transportadora" | "presencial" | "acerto";
   carrierName?: string;
   carrierPhone?: string;
   shippingDate: number;

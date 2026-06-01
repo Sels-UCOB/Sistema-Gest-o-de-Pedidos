@@ -10,11 +10,15 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PageNav } from "@/components/ui/page-nav";
 import { Printer, Camera } from "lucide-react";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 import { CAMPO_MAP } from "@/lib/campos";
 import type { CampoId } from "@/lib/campos";
 import { useUserRole } from "@/lib/user-context";
+
+const PAGE_SIZE = 15;
+const default30 = () => format(subDays(new Date(), 30), "yyyy-MM-dd");
 
 interface ReportRow {
   order: Order;
@@ -26,12 +30,14 @@ export default function ReportsPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [startDate, setStartDate] = useState("");
+  const [startDate, setStartDate] = useState(default30);
   const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [campoFilter, setCampoFilter] = useState("ALL");
   const [responsibleFilter, setResponsibleFilter] = useState("ALL");
+  const [tipoFilter, setTipoFilter] = useState<"ALL" | "envio" | "acerto">("ALL");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [previewPhotos, setPreviewPhotos] = useState<string[] | null>(null);
+  const [page, setPage] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,10 +66,21 @@ export default function ReportsPage() {
         if (endDate && d > new Date(endDate + "T23:59:59").getTime()) return false;
         if (campoFilter !== "ALL" && CAMPO_MAP[order.campaignCode] !== (campoFilter as CampoId)) return false;
         if (responsibleFilter !== "ALL" && order.responsible !== responsibleFilter) return false;
+        if (tipoFilter !== "ALL" && order.tipo !== tipoFilter) return false;
         return true;
       })
       .sort((a, b) => b.shipment.shippingDate - a.shipment.shippingDate);
-  }, [orders, shipmentMap, startDate, endDate, campoFilter, responsibleFilter]);
+  }, [orders, shipmentMap, startDate, endDate, campoFilter, responsibleFilter, tipoFilter]);
+
+  // reset página ao mudar filtros
+  const prevFilters = useMemo(() => ({ startDate, endDate, campoFilter, responsibleFilter, tipoFilter }),
+    [startDate, endDate, campoFilter, responsibleFilter, tipoFilter]);
+  useEffect(() => { setPage(0); }, [prevFilters]);
+
+  const pageRows = useMemo(
+    () => rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [rows, page]
+  );
 
   const responsibles = useMemo(() => {
     const names = orders
@@ -87,7 +104,7 @@ export default function ReportsPage() {
     : rows;
 
   const defaultEndDate = format(new Date(), "yyyy-MM-dd");
-  const hasFilters = !!startDate || endDate !== defaultEndDate || campoFilter !== "ALL" || responsibleFilter !== "ALL";
+  const hasFilters = startDate !== default30() || endDate !== defaultEndDate || campoFilter !== "ALL" || responsibleFilter !== "ALL" || tipoFilter !== "ALL";
 
   const handlePrint = () => {
     const win = window.open("", "_blank");
@@ -117,8 +134,9 @@ export default function ReportsPage() {
         .bold { font-weight: 600; color: #1e293b; font-size: 12px; }
         .sub { font-size: 10px; color: #64748b; margin-top: 1px; }
         .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 9px; font-weight: bold; text-transform: uppercase; }
-        .badge-trans { background: #dbeafe; color: #1d4ed8; }
-        .badge-pres { background: #d1fae5; color: #065f46; }
+        .badge-trans   { background: #dbeafe; color: #1d4ed8; }
+        .badge-pres    { background: #d1fae5; color: #065f46; }
+        .badge-acerto  { background: #ede9fe; color: #5b21b6; }
         .photos { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
         .photos img { width: 60px; height: 60px; object-fit: cover; border: 1px solid #e2e8f0; border-radius: 4px; }
         .footer { text-align: center; font-size: 10px; color: #94a3b8; margin-top: 24px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
@@ -157,8 +175,8 @@ export default function ReportsPage() {
               </td>
               <td>${order.items.map(it => `<div>${it.quantity}× ${it.name}</div>`).join("")}</td>
               <td>
-                <span class="badge ${shipment.type === "transportadora" ? "badge-trans" : "badge-pres"}">
-                  ${shipment.type === "transportadora" ? "Transportadora" : "Presencial"}
+                <span class="badge ${shipment.type === "transportadora" ? "badge-trans" : shipment.type === "acerto" ? "badge-acerto" : "badge-pres"}">
+                  ${shipment.type === "transportadora" ? "Transportadora" : shipment.type === "acerto" ? "Acerto" : "Presencial"}
                 </span>
                 <div class="sub" style="margin-top:3px">${shipment.carrierName ?? shipment.pickupName ?? "—"}</div>
               </td>
@@ -246,6 +264,21 @@ export default function ReportsPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1 md:space-y-1.5 md:flex-1">
+              <Label className="text-[10px] uppercase tracking-wide text-slate-400 md:text-sm md:normal-case md:tracking-normal md:text-slate-300">Tipo</Label>
+              <Select value={tipoFilter} onValueChange={v => setTipoFilter(v as typeof tipoFilter)}>
+                <SelectTrigger className="text-xs h-8 md:h-10 md:text-sm">
+                  <span className="flex-1 text-left text-sm truncate">
+                    {tipoFilter === "ALL" ? "Todos" : tipoFilter === "envio" ? "Envio" : "Acerto"}
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Todos</SelectItem>
+                  <SelectItem value="envio">Envio</SelectItem>
+                  <SelectItem value="acerto">Acerto</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Clear filters */}
@@ -254,10 +287,11 @@ export default function ReportsPage() {
               variant="ghost"
               size="sm"
               onClick={() => {
-                setStartDate("");
-                setEndDate("");
+                setStartDate(default30());
+                setEndDate(format(new Date(), "yyyy-MM-dd"));
                 setCampoFilter("ALL");
                 setResponsibleFilter("ALL");
+                setTipoFilter("ALL");
               }}
             >
               Limpar filtros
@@ -298,7 +332,7 @@ export default function ReportsPage() {
                     Nenhum registro encontrado.
                   </TableCell>
                 </TableRow>
-              ) : rows.map(({ order, shipment }) => (
+              ) : pageRows.map(({ order, shipment }) => (
                 <TableRow
                   key={order.id}
                   className={selectedIds.includes(order.id) ? "bg-indigo-500/5" : ""}
@@ -325,11 +359,11 @@ export default function ReportsPage() {
                   </TableCell>
                   <TableCell>
                     <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-                      shipment.type === "transportadora"
-                        ? "bg-blue-500/20 text-blue-300"
-                        : "bg-emerald-500/20 text-emerald-300"
+                      shipment.type === "transportadora" ? "bg-blue-500/20 text-blue-300"
+                      : shipment.type === "acerto"       ? "bg-violet-500/20 text-violet-300"
+                                                         : "bg-emerald-500/20 text-emerald-300"
                     }`}>
-                      {shipment.type === "transportadora" ? "Transportadora" : "Presencial"}
+                      {shipment.type === "transportadora" ? "Transportadora" : shipment.type === "acerto" ? "Acerto" : "Presencial"}
                     </span>
                     <p className="text-xs text-slate-400 mt-1">{shipment.carrierName ?? shipment.pickupName ?? "—"}</p>
                   </TableCell>
@@ -362,7 +396,7 @@ export default function ReportsPage() {
             <p className="text-center py-8 text-slate-500 text-sm">Carregando...</p>
           ) : rows.length === 0 ? (
             <p className="text-center py-8 text-slate-500 text-sm">Nenhum registro encontrado.</p>
-          ) : rows.map(({ order, shipment }) => (
+          ) : pageRows.map(({ order, shipment }) => (
             <div
               key={order.id}
               className={`p-3 rounded-xl border bg-slate-900/50 space-y-2 cursor-pointer transition-colors ${
@@ -400,11 +434,11 @@ export default function ReportsPage() {
               </div>
               <div className="flex items-center gap-3 text-xs pl-6">
                 <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[10px] ${
-                  shipment.type === "transportadora"
-                    ? "bg-blue-500/20 text-blue-300"
-                    : "bg-emerald-500/20 text-emerald-300"
+                  shipment.type === "transportadora" ? "bg-blue-500/20 text-blue-300"
+                  : shipment.type === "acerto"       ? "bg-violet-500/20 text-violet-300"
+                                                     : "bg-emerald-500/20 text-emerald-300"
                 }`}>
-                  {shipment.type === "transportadora" ? "Transportadora" : "Presencial"}
+                  {shipment.type === "transportadora" ? "Transportadora" : shipment.type === "acerto" ? "Acerto" : "Presencial"}
                 </span>
                 <span className="text-slate-400">{format(shipment.shippingDate, "dd/MM/yy")}</span>
                 <span className="text-slate-500">{order.responsible}</span>
@@ -412,6 +446,14 @@ export default function ReportsPage() {
             </div>
           ))}
         </CardContent>
+
+        <PageNav
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={rows.length}
+          onChange={p => { setPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+          loading={loading}
+        />
       </Card>
 
       {/* Photo preview modal */}

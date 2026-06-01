@@ -13,8 +13,12 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Camera, Truck, Pencil } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 import { useUserRole } from "@/lib/user-context";
+import { PageNav } from "@/components/ui/page-nav";
+
+const PAGE_SIZE = 15;
+const default30 = () => format(subDays(new Date(), 30), "yyyy-MM-dd");
 
 function withTimeout<T>(p: Promise<T>, ms = 12000): Promise<T> {
   return Promise.race([
@@ -104,17 +108,27 @@ export default function ShipmentsPage() {
   const closedOrders = allOrders?.filter(o => o.status === "closed") || [];
 
   const [filterShip, setFilterShip] = useState("");
+  const [filterFrom, setFilterFrom] = useState(default30);
+  const [filterAll, setFilterAll] = useState(false);
+  const [shipPage, setShipPage] = useState(0);
 
   const filteredShipments = (shipments ?? []).filter(s => {
+    if (!filterAll && filterFrom) {
+      const from = new Date(filterFrom + "T00:00:00").getTime();
+      if (s.shippingDate < from) return false;
+    }
     if (!filterShip) return true;
     const q = filterShip.toLowerCase();
     return (
       (s.carrierName ?? "").toLowerCase().includes(q) ||
-      (s.pickupName ?? "").toLowerCase().includes(q)
+      (s.pickupName ?? "").toLowerCase().includes(q) ||
+      (s.type === "acerto" ? "acerto" : "").includes(q)
     );
   });
 
-  const [shippingType, setShippingType] = useState<"transportadora" | "presencial">("transportadora");
+  const pageShipments = filteredShipments.slice(shipPage * PAGE_SIZE, (shipPage + 1) * PAGE_SIZE);
+
+  const [shippingType, setShippingType] = useState<"transportadora" | "presencial" | "acerto">("transportadora");
   const [carrierName, setCarrierName] = useState("");
   const [carrierPhone, setCarrierPhone] = useState("");
   const [shippingDate, setShippingDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -125,7 +139,7 @@ export default function ShipmentsPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [editingShipment, setEditingShipment] = useState<Shipment | null>(null);
-  const [editType, setEditType] = useState<"transportadora" | "presencial">("transportadora");
+  const [editType, setEditType] = useState<"transportadora" | "presencial" | "acerto">("transportadora");
   const [editCarrierName, setEditCarrierName] = useState("");
   const [editCarrierPhone, setEditCarrierPhone] = useState("");
   const [editShippingDate, setEditShippingDate] = useState("");
@@ -145,6 +159,7 @@ export default function ShipmentsPage() {
     if (!editingShipment) return;
     if (editType === "transportadora" && !editCarrierName.trim()) { alert("Informe o nome da transportadora."); return; }
     if (editType === "presencial" && !editPickupName.trim()) { alert("Informe o nome de quem vai retirar."); return; }
+    // acerto: nenhum campo extra obrigatório
     setEditSaving(true);
     try {
       await updateShipment(editingShipment.id, {
@@ -152,7 +167,7 @@ export default function ShipmentsPage() {
         carrierName: editType === "transportadora" ? editCarrierName : null,
         carrierPhone: editType === "transportadora" ? editCarrierPhone : null,
         shippingDate: new Date(editShippingDate + "T00:00:00").getTime(),
-        pickupName: editType === "presencial" ? editPickupName : null,
+        pickupName: (editType === "presencial" || editType === "acerto") ? (editPickupName || null) : null,
       });
       setEditingShipment(null);
       await loadShipments();
@@ -168,6 +183,7 @@ export default function ShipmentsPage() {
     if (selectedOrderIds.length === 0) { alert("Selecione pelo menos um pedido!"); return; }
     if (shippingType === "transportadora" && !carrierName.trim()) { alert("Informe o nome da transportadora."); return; }
     if (shippingType === "presencial" && !pickupName.trim()) { alert("Informe o nome de quem vai retirar."); return; }
+    // acerto: nenhum campo extra obrigatório
     if (submitting) return;
     setSubmitting(true);
     try {
@@ -176,7 +192,7 @@ export default function ShipmentsPage() {
         carrierName: shippingType === "transportadora" ? carrierName : undefined,
         carrierPhone: shippingType === "transportadora" ? carrierPhone : undefined,
         shippingDate: new Date(shippingDate + "T00:00:00").getTime(),
-        pickupName: shippingType === "presencial" ? pickupName : undefined,
+        pickupName: (shippingType === "presencial" || shippingType === "acerto") ? (pickupName || undefined) : undefined,
         orderIds: selectedOrderIds,
         status: "pending",
         receiptPhotoUrls: [],
@@ -246,11 +262,21 @@ export default function ShipmentsPage() {
               onChange={e => setFilterShip(e.target.value)}
               className="sm:w-72 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500 h-9"
             />
-            <span className="text-slate-500 text-sm self-center">
-              {filteredShipments.length} envio{filteredShipments.length !== 1 ? "s" : ""}
-              {filterShip && shipments && shipments.length !== filteredShipments.length
-                ? ` de ${shipments.length}` : ""}
-            </span>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-slate-500 text-sm">
+                {filteredShipments.length} envio{filteredShipments.length !== 1 ? "s" : ""}
+              </span>
+              <button
+                onClick={() => { setFilterAll(v => !v); setShipPage(0); }}
+                className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${
+                  filterAll
+                    ? "border-indigo-500/50 text-indigo-300 bg-indigo-500/10"
+                    : "border-slate-700 text-slate-400 hover:border-slate-500"
+                }`}
+              >
+                {filterAll ? "Mostrando todos" : "Últimos 30 dias"}
+              </button>
+            </div>
           </div>
           {loadError && (
             <div className="mb-4 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
@@ -273,7 +299,7 @@ export default function ShipmentsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredShipments.map(shipment => (
+                  {pageShipments.map(shipment => (
                     <TableRow key={shipment.id}>
                       <TableCell>{format(shipment.shippingDate, 'dd/MM/yy')}</TableCell>
                       <TableCell>
@@ -315,11 +341,15 @@ export default function ShipmentsPage() {
               </Table>
             </CardContent>
             <CardContent className="p-3 flex flex-col gap-3 md:hidden">
-              {filteredShipments.map(shipment => (
+              {pageShipments.map(shipment => (
                 <div key={shipment.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-900/50">
                   <div className="flex flex-col gap-1">
                     <span className="font-bold text-white text-sm">
-                      {shipment.type === "transportadora" ? shipment.carrierName : "Retirada Presencial"}
+                      {shipment.type === "transportadora"
+                        ? shipment.carrierName
+                        : shipment.type === "acerto"
+                          ? (shipment.pickupName ? `Acerto · ${shipment.pickupName}` : "Acerto")
+                          : (shipment.pickupName ? `Retirada · ${shipment.pickupName}` : "Retirada Presencial")}
                     </span>
                     <span className="text-xs text-slate-400">
                       {format(shipment.shippingDate, 'dd/MM/yyyy')} · {shipment.orderIds.length} pedidos
@@ -350,6 +380,12 @@ export default function ShipmentsPage() {
                 </p>
               )}
             </CardContent>
+            <PageNav
+              page={shipPage}
+              pageSize={PAGE_SIZE}
+              total={filteredShipments.length}
+              onChange={p => { setShipPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+            />
           </Card>
         </TabsContent>
 
@@ -361,7 +397,7 @@ export default function ShipmentsPage() {
                 <div className="space-y-6">
                   <div className="space-y-3">
                     <Label>Método de Entrega</Label>
-                    <RadioGroup value={shippingType} onValueChange={(v) => setShippingType(v as "transportadora" | "presencial")} className="flex space-x-4">
+                    <RadioGroup value={shippingType} onValueChange={(v) => setShippingType(v as "transportadora" | "presencial" | "acerto")} className="flex flex-wrap gap-x-4 gap-y-2">
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="transportadora" id="trans" />
                         <Label htmlFor="trans">Transportadora</Label>
@@ -369,6 +405,10 @@ export default function ShipmentsPage() {
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="presencial" id="pres" />
                         <Label htmlFor="pres">Retirada Presencial</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="acerto" id="acerto" />
+                        <Label htmlFor="acerto">Acerto</Label>
                       </div>
                     </RadioGroup>
                   </div>
@@ -395,6 +435,12 @@ export default function ShipmentsPage() {
                       <div className="space-y-2">
                         <Label>Nome de Quem Retirou</Label>
                         <Input placeholder="Nome completo" value={pickupName} onChange={(e) => setPickupName(e.target.value)} />
+                      </div>
+                    )}
+                    {shippingType === "acerto" && (
+                      <div className="space-y-2">
+                        <Label>Responsável (opcional)</Label>
+                        <Input placeholder="Nome do responsável" value={pickupName} onChange={(e) => setPickupName(e.target.value)} />
                       </div>
                     )}
                   </div>
@@ -449,7 +495,7 @@ export default function ShipmentsPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Método de Entrega</Label>
-              <RadioGroup value={editType} onValueChange={(v) => setEditType(v as "transportadora" | "presencial")} className="flex space-x-4">
+              <RadioGroup value={editType} onValueChange={(v) => setEditType(v as "transportadora" | "presencial" | "acerto")} className="flex flex-wrap gap-x-4 gap-y-2">
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="transportadora" id="edit-trans" />
                   <Label htmlFor="edit-trans">Transportadora</Label>
@@ -457,6 +503,10 @@ export default function ShipmentsPage() {
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="presencial" id="edit-pres" />
                   <Label htmlFor="edit-pres">Retirada Presencial</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="acerto" id="edit-acerto" />
+                  <Label htmlFor="edit-acerto">Acerto</Label>
                 </div>
               </RadioGroup>
             </div>
@@ -476,6 +526,12 @@ export default function ShipmentsPage() {
               <div className="space-y-2">
                 <Label>Nome de Quem Retirou</Label>
                 <Input value={editPickupName} onChange={e => setEditPickupName(e.target.value)} />
+              </div>
+            )}
+            {editType === "acerto" && (
+              <div className="space-y-2">
+                <Label>Responsável (opcional)</Label>
+                <Input placeholder="Nome do responsável" value={editPickupName} onChange={e => setEditPickupName(e.target.value)} />
               </div>
             )}
             <div className="space-y-2">
