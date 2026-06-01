@@ -49,11 +49,18 @@ function overlapsXZ(
 }
 
 // Lowest Y at which a box with the given XZ footprint can rest (stacks on arches + existing boxes)
+// E = tolerância para evitar que imprecisão de ponto flutuante eleve caixas que tocam
+// exatamente a borda do arco (e.g. 0.54 + 0.74 = 1.2800000000000002 em JS)
+const ARCH_E = 0.002;
 function findStackY(x: number, z: number, w: number, d: number, boxes: PlacedBox[]): number {
   let y = 0;
-  if (overlapsXZ(x, z, w, d, ARCH_LEFT.x,  ARCH_LEFT.z,  ARCH_LEFT.w,  ARCH_LEFT.d))
+  if (overlapsXZ(x, z, w, d,
+      ARCH_LEFT.x  + ARCH_E, ARCH_LEFT.z  + ARCH_E,
+      ARCH_LEFT.w  - ARCH_E * 2, ARCH_LEFT.d  - ARCH_E * 2))
     y = Math.max(y, ARCH_LEFT.hMax);
-  if (overlapsXZ(x, z, w, d, ARCH_RIGHT.x, ARCH_RIGHT.z, ARCH_RIGHT.w, ARCH_RIGHT.d))
+  if (overlapsXZ(x, z, w, d,
+      ARCH_RIGHT.x + ARCH_E, ARCH_RIGHT.z + ARCH_E,
+      ARCH_RIGHT.w - ARCH_E * 2, ARCH_RIGHT.d - ARCH_E * 2))
     y = Math.max(y, ARCH_RIGHT.hMax);
   for (const box of boxes) {
     const { w: bw, h: bh, d: bd } = getBoxDimsM(box.size, box.orientation);
@@ -89,11 +96,16 @@ function snapPosition(
   // Arch edges as snap candidates
   xSet.add(ARCH_LEFT.x + ARCH_LEFT.w);       // borda direita do arco esq
   xSet.add(ARCH_RIGHT.x - bw);               // borda esquerda do arco dir
-  zSet.add(ARCH_LEFT.z - bd);                // frente dos arcos
-  zSet.add(ARCH_LEFT.z + ARCH_LEFT.d);       // atrás dos arcos
+  zSet.add(ARCH_LEFT.z - bd);                // linha que termina na frente do arco
+  // Nota: NÃO adicionamos ARCH_LEFT.z + ARCH_LEFT.d como candidato — isso causaria snap
+  // para z=1.29 que sobrepõe a linha 3 (ends at 1.32) e eleva a linha da porta
 
   for (const box of boxes) {
     const { w: ebw, d: ebd } = getBoxDimsM(box.size, box.orientation);
+    // Mesma posição → empilhar
+    xSet.add(box.x);
+    zSet.add(box.z);
+    // Bordas → colocar ao lado
     xSet.add(box.x + ebw);
     xSet.add(box.x - bw);
     zSet.add(box.z + ebd);
@@ -107,15 +119,17 @@ function snapPosition(
       const z = clampZ(rz);
       const dist = Math.hypot(x - nx, z - nz);
 
-      const overlapsBox = boxes.some(b => {
-        const { w: ebw, d: ebd } = getBoxDimsM(b.size, b.orientation);
-        return overlapsXZ(x, z, bw, bd, b.x, b.z, ebw, ebd);
-      });
+      // Apenas arcos penalizam — sobreposição XZ com caixas é permitida (empilhamento)
+      // Usa mesma tolerância de ARCH_E para consistência com findStackY
       const overlapsArch =
-        overlapsXZ(x, z, bw, bd, ARCH_LEFT.x,  ARCH_LEFT.z,  ARCH_LEFT.w,  ARCH_LEFT.d) ||
-        overlapsXZ(x, z, bw, bd, ARCH_RIGHT.x, ARCH_RIGHT.z, ARCH_RIGHT.w, ARCH_RIGHT.d);
+        overlapsXZ(x, z, bw, bd,
+          ARCH_LEFT.x  + ARCH_E, ARCH_LEFT.z  + ARCH_E,
+          ARCH_LEFT.w  - ARCH_E * 2, ARCH_LEFT.d  - ARCH_E * 2) ||
+        overlapsXZ(x, z, bw, bd,
+          ARCH_RIGHT.x + ARCH_E, ARCH_RIGHT.z + ARCH_E,
+          ARCH_RIGHT.w - ARCH_E * 2, ARCH_RIGHT.d - ARCH_E * 2);
 
-      const score = dist + (overlapsBox ? 10 : 0) + (overlapsArch ? 10 : 0);
+      const score = dist + (overlapsArch ? 10 : 0);
       if (score < bestScore) { bestScore = score; bestX = x; bestZ = z; }
     }
   }
@@ -147,7 +161,7 @@ function drawFloorPlan(
   ctx.clearRect(0, 0, CW, CH);
 
   // Compartment fill
-  ctx.fillStyle = "#0f172a";
+  ctx.fillStyle = "#1e293b";
   ctx.fillRect(PAD, PAD, aW, aH);
 
   // Wheel arches — cross-hatched
@@ -195,15 +209,15 @@ function drawFloorPlan(
   ctx.fillText("CAB", CW / 2, PAD / 2 + 1);
   ctx.fillText("PORTA", CW / 2, CH - PAD / 2 - 1);
 
-  // Placed boxes (XZ footprint)
+  // Placed boxes (XZ footprint) — pixel-snapped para evitar gaps entre caixas adjacentes
   for (const box of boxes) {
     const { w: bw, d: bd } = getBoxDimsM(box.size, box.orientation);
-    const bpx = px(box.x), bpz = pz(box.z), bpw = bw * sX, bph = bd * sZ;
-    ctx.fillStyle = box.color + "cc";
+    const bpx = Math.round(px(box.x));
+    const bpz = Math.round(pz(box.z));
+    const bpw = Math.round(px(box.x + bw)) - bpx;
+    const bph = Math.round(pz(box.z + bd)) - bpz;
+    ctx.fillStyle = box.color;
     ctx.fillRect(bpx, bpz, bpw, bph);
-    ctx.strokeStyle = box.color;
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(bpx, bpz, bpw, bph);
     if (bpw > 18 && bph > 10) {
       ctx.fillStyle = "#fff";
       ctx.font = `bold ${Math.min(10, Math.floor(bph * 0.42))}px sans-serif`;
@@ -214,56 +228,29 @@ function drawFloorPlan(
     }
   }
 
-  // Hover ghost — shows snapped position or removal indicator
+  // Hover ghost — sempre mostra onde a caixa será colocada (inclusive empilhada)
   if (hover) {
-    const hoveredBox = boxes
-      .filter(b => {
-        const { w: bw, d: bd } = getBoxDimsM(b.size, b.orientation);
-        return hover.x >= b.x && hover.x <= b.x + bw && hover.z >= b.z && hover.z <= b.z + bd;
-      })
-      .sort((a, b) => {
-        const { h: ah } = getBoxDimsM(a.size, a.orientation);
-        const { h: bh } = getBoxDimsM(b.size, b.orientation);
-        return (b.y + bh) - (a.y + ah);
-      })[0] ?? null;
-
-    if (hoveredBox) {
-      // Show removal indicator on the hovered box
-      const { w: bw, d: bd } = getBoxDimsM(hoveredBox.size, hoveredBox.orientation);
-      const bpx = px(hoveredBox.x), bpz = pz(hoveredBox.z), bpw = bw * sX, bph = bd * sZ;
-      ctx.fillStyle = "rgba(239,68,68,0.35)";
-      ctx.fillRect(bpx, bpz, bpw, bph);
-      ctx.strokeStyle = "#f87171";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(bpx, bpz, bpw, bph);
-      // Draw X in the center
-      const cx2 = bpx + bpw / 2, cz2 = bpz + bph / 2, arm = Math.min(bpw, bph) * 0.22;
-      ctx.strokeStyle = "#f87171";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(cx2 - arm, cz2 - arm); ctx.lineTo(cx2 + arm, cz2 + arm);
-      ctx.moveTo(cx2 + arm, cz2 - arm); ctx.lineTo(cx2 - arm, cz2 + arm);
-      ctx.stroke();
-    } else {
-      const { w: bw, h: bh, d: bd } = getBoxDimsM(selectedSize, orientation);
-      const { x: cx, z: cz } = snapPosition(hover.x, hover.z, bw, bd, boxes);
-      const y  = findStackY(cx, cz, bw, bd, boxes);
-      const ok = canPlace(cx, y, cz, bw, bh, bd);
-      const gx = px(cx), gz = pz(cz), gw = bw * sX, gh = bd * sZ;
-      ctx.fillStyle = ok ? "rgba(99,102,241,0.30)" : "rgba(239,68,68,0.30)";
-      ctx.fillRect(gx, gz, gw, gh);
-      ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = ok ? "#818cf8" : "#f87171";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(gx, gz, gw, gh);
-      ctx.setLineDash([]);
-      if (ok && gh > 12 && gw > 24) {
-        ctx.fillStyle = "#818cf8";
-        ctx.font = "8px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(y > 0.01 ? `+${y.toFixed(2)}m` : "chão", gx + gw / 2, gz + gh / 2);
-      }
+    const { w: bw, h: bh, d: bd } = getBoxDimsM(selectedSize, orientation);
+    const { x: cx, z: cz } = snapPosition(hover.x, hover.z, bw, bd, boxes);
+    const y  = findStackY(cx, cz, bw, bd, boxes);
+    const ok = canPlace(cx, y, cz, bw, bh, bd);
+    const gx = px(cx), gz = pz(cz), gw = bw * sX, gh = bd * sZ;
+    ctx.fillStyle = ok ? "rgba(99,102,241,0.30)" : "rgba(239,68,68,0.30)";
+    ctx.fillRect(gx, gz, gw, gh);
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = ok ? "#818cf8" : "#f87171";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(gx, gz, gw, gh);
+    ctx.setLineDash([]);
+    if (gh > 12 && gw > 24) {
+      ctx.fillStyle = ok ? "#818cf8" : "#f87171";
+      ctx.font = "8px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(
+        !ok ? "sem espaço" : y > 0.01 ? `+${y.toFixed(2)}m` : "chão",
+        gx + gw / 2, gz + gh / 2
+      );
     }
   }
 }
@@ -357,26 +344,9 @@ export default function FiorinoPage() {
     const pos = getCanvasPos(clientX, clientY);
     if (!pos) return;
 
-    // Clicking on an existing box → remove the top-most one at that XZ position
-    const hit = boxes
-      .filter(b => {
-        const { w: bw, d: bd } = getBoxDimsM(b.size, b.orientation);
-        return pos.x >= b.x && pos.x <= b.x + bw && pos.z >= b.z && pos.z <= b.z + bd;
-      })
-      .sort((a, b) => {
-        const { h: ah } = getBoxDimsM(a.size, a.orientation);
-        const { h: bh } = getBoxDimsM(b.size, b.orientation);
-        return (b.y + bh) - (a.y + ah);
-      });
-
-    if (hit.length > 0) {
-      setBoxes(prev => prev.filter(b => b.id !== hit[0].id));
-      return;
-    }
-
     const { w: bw, h: bh, d: bd } = getBoxDimsM(selectedSize, orientation);
     const { x: cx, z: cz } = snapPosition(pos.x, pos.z, bw, bd, boxes);
-    const y  = findStackY(cx, cz, bw, bd, boxes);
+    const y = findStackY(cx, cz, bw, bd, boxes);
     if (!canPlace(cx, y, cz, bw, bh, bd)) return;
     setBoxes(prev => [...prev, {
       id: crypto.randomUUID(), size: selectedSize, orientation,
@@ -551,7 +521,7 @@ export default function FiorinoPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-white">Fiorino</h1>
-          <p className="text-xs text-slate-500">1,90 × 1,50 × 1,34 m</p>
+          <p className="text-xs text-slate-500">1,76 × 1,20 × 1,34 m</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
@@ -652,7 +622,7 @@ export default function FiorinoPage() {
                   <SectionLabel>Planta baixa · toque para posicionar/remover</SectionLabel>
                   <canvas
                     ref={canvasRef}
-                    className="w-full h-[200px] rounded-lg cursor-crosshair touch-none border border-slate-800 md:flex-1 md:h-auto"
+                    className="w-full h-[56vw] min-h-[220px] max-h-[320px] rounded-lg cursor-crosshair touch-none border border-slate-800 md:flex-1 md:h-auto md:max-h-none"
                     onMouseMove={handleCanvasMove}
                     onMouseLeave={handleCanvasLeave}
                     onClick={handleCanvasClick}
@@ -673,7 +643,7 @@ export default function FiorinoPage() {
             </TabsContent>
 
             {/* ── Tab: Caixas ── */}
-            <TabsContent value="caixas" className="m-0 flex flex-col min-h-0 md:overflow-y-auto">
+            <TabsContent value="caixas" className="m-0 flex flex-col min-h-0 overflow-y-auto max-h-[50vh] md:max-h-none">
               <div className="flex flex-col gap-2 p-3">
                 {boxes.length === 0 ? (
                   <p className="text-sm text-slate-500 text-center mt-8">Nenhuma caixa adicionada</p>
@@ -707,7 +677,7 @@ export default function FiorinoPage() {
             </TabsContent>
 
             {/* ── Tab: Histórico ── */}
-            <TabsContent value="historico" className="m-0 flex flex-col min-h-0 md:overflow-y-auto">
+            <TabsContent value="historico" className="m-0 flex flex-col min-h-0 overflow-y-auto max-h-[50vh] md:max-h-none">
               <div className="flex flex-col gap-2 p-3">
                 {plansLoading ? (
                   <div className="flex justify-center py-8">

@@ -183,6 +183,39 @@ export async function getGalleryMetadata(): Promise<GalleryMetaRow[]> {
   return (data ?? []) as GalleryMetaRow[];
 }
 
+export async function getGalleryMetadataPaged(
+  offset: number,
+  limit = 24
+): Promise<{ rows: GalleryMetaRow[]; total: number }> {
+  const { data, error } = await supabase.rpc("get_gallery_metadata_paged", {
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (error) throw error;
+  const rows = (data ?? []) as Array<GalleryMetaRow & { total_count: number }>;
+  return { rows, total: rows[0]?.total_count ?? 0 };
+}
+
+export async function getPhotosBulk(
+  requests: Array<{ id: string; orderId: string; type: string; productId: string | null }>
+): Promise<Record<string, string | null>> {
+  if (requests.length === 0) return {};
+  const { data, error } = await supabase.rpc("get_photos_bulk", {
+    p_requests: requests.map(r => ({
+      id: r.id,
+      order_id: r.orderId,
+      photo_type: r.type,
+      product_id: r.productId ?? null,
+    })),
+  });
+  if (error) throw error;
+  const map: Record<string, string | null> = {};
+  for (const item of (data as Array<{ id: string; url: string | null }>) ?? []) {
+    map[item.id] = item.url;
+  }
+  return map;
+}
+
 export async function getSinglePhoto(orderId: string, photoType: string, productId?: string | null): Promise<string | null> {
   const { data, error } = await supabase.rpc("get_single_photo", {
     p_order_id: orderId,

@@ -36,34 +36,34 @@ export function getBoxDimsM(type: BoxType, orientation: BoxOrientation) {
 
 // Returns dimensions in Three.js units (SCALE applied)
 export function getRealDims(type: BoxType, orientation: BoxOrientation) {
-  const s = 4.0 / 1.50;
+  const s = 4.0 / CARGO.width;   // must match SCALE used in the scene
   const { w, h, d } = getBoxDimsM(type, orientation);
   return { w: w * s, h: h * s, d: d * s };
 }
 
 // ── Compartment constants (exported for canvas drawing) ─────────────────────
-export const CARGO = { width: 1.50, length: 1.90, height: 1.34, opHeight: 1.10 } as const;
+export const CARGO = { width: 1.20, length: 1.76, height: 1.34, opHeight: 1.10 } as const;
 
 // Wheel arch volumes in real metres (origin = cab-left-floor corner)
-// Both arches start 0.47 m from the door → z0 = 1.90 − 0.47 − 0.74 = 0.69 m from cab
-export const ARCH_LEFT  = { x: 0,    z: 0.69, w: 0.12, d: 0.74, hMax: 0.43 } as const;
-export const ARCH_RIGHT = { x: 1.38, z: 0.69, w: 0.12, d: 0.74, hMax: 0.32 } as const;
+// Both arches start 0.47 m from the door → z0 = 1.76 − 0.47 − 0.74 = 0.55 m from cab
+export const ARCH_LEFT  = { x: 0,    z: 0.55, w: 0.12, d: 0.74, hMax: 0.43 } as const;
+export const ARCH_RIGHT = { x: 1.08, z: 0.55, w: 0.12, d: 0.74, hMax: 0.32 } as const;
 
-// Fiorino: 1.32 m wide × 1.90 m long × 1.34 m tall
+// Fiorino: 1.20 m wide × 1.76 m long × 1.34 m tall
 // Grid: 4 cols × 6 rows × 5 levels (operational height 1.10 m)
-// Scale: 4.0 ÷ 1.32 ≈ 3.03 Three.js units per metre
-const SCALE  = 4.0 / 1.50;          // ≈ 2.667 u/m
+// Scale: 4.0 ÷ 1.20 = 3.33 Three.js units per metre
+const SCALE  = 4.0 / 1.20;          // = 3.333 u/m
 
 const COLS   = 4;
 const ROWS   = 6;
 const LEVELS = 5;                    // 5 × 0.22 m = 1.10 m operational
 
-const CX     = 1.0;                  // col width      (0.33 m)
-const CZ     = 1.90 / 6 * SCALE;    // row depth      (0.317 m → 0.960 u)
+const CX     = 1.0;                  // col width      (0.30 m)
+const CZ     = 1.76 / 6 * SCALE;    // row depth      (0.293 m → 0.978 u)
 const CY     = 1.10 / 5 * SCALE;    // level height   (0.22  m → 0.667 u)
 
-const W      = COLS   * CX;         // 4.0  u = 1.32 m
-const D      = ROWS   * CZ;         // 5.76 u = 1.90 m
+const W      = COLS   * CX;         // 4.0  u = 1.20 m
+const D      = ROWS   * CZ;         // 5.83 u = 1.75 m
 const H      = LEVELS * CY;         // 3.33 u = 1.10 m  (operational / stack limit)
 const HWALL  = 1.34   * SCALE;      // 4.06 u = 1.34 m  (actual compartment height)
 
