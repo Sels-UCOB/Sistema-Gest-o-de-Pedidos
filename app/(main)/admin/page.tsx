@@ -68,7 +68,7 @@ export default function AdminPage() {
               {profiles.map(p => (
                 <div
                   key={p.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-slate-800 bg-slate-800/30"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-xl border border-slate-800 bg-slate-800/30 hover:bg-slate-800/50 hover:border-slate-700 transition-colors"
                 >
                   <div>
                     <p className="text-sm font-medium text-white">{p.full_name ?? "—"}</p>

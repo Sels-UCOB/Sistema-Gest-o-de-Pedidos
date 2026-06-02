@@ -41,13 +41,7 @@ function writeCache<T>(key: string, data: T) {
   try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
 }
 
-function formatAge(ts: number): string {
-  const mins = Math.floor((Date.now() - ts) / 60000);
-  if (mins < 1) return "Atualizado agora";
-  if (mins < 60) return `Atualizado há ${mins} min`;
-  const hrs = Math.floor(mins / 60);
-  return `Atualizado há ${hrs}h`;
-}
+import { formatAge } from "@/lib/utils";
 
 export default function ShipmentsPage() {
   const { profileLoaded, refreshTick } = useUserRole();
@@ -108,7 +102,7 @@ export default function ShipmentsPage() {
   const closedOrders = allOrders?.filter(o => o.status === "closed") || [];
 
   const [filterShip, setFilterShip] = useState("");
-  const [filterFrom, setFilterFrom] = useState(default30);
+  const filterFrom = default30();
   const [filterAll, setFilterAll] = useState(false);
   const [shipPage, setShipPage] = useState(0);
 
@@ -246,7 +240,7 @@ export default function ShipmentsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full print:hidden">
-        <TabsList className="grid w-full grid-cols-2 md:w-[400px]">
+        <TabsList className="grid w-full grid-cols-2 md:w-[480px]">
           <TabsTrigger value="create">Novo</TabsTrigger>
           <TabsTrigger value="list">Lista</TabsTrigger>
         </TabsList>
@@ -255,12 +249,12 @@ export default function ShipmentsPage() {
           {cacheTs && (
             <p className="text-xs text-slate-500 mb-2">{formatAge(cacheTs)}</p>
           )}
-          <div className="flex flex-col sm:flex-row gap-2 mb-4 items-start sm:items-center">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-6 items-start sm:items-center">
             <Input
               placeholder="Buscar transportadora ou retirada..."
               value={filterShip}
               onChange={e => setFilterShip(e.target.value)}
-              className="sm:w-72 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500 h-9"
+              className="w-full sm:w-80 h-10 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
             />
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-slate-500 text-sm">
@@ -310,7 +304,7 @@ export default function ShipmentsPage() {
                       </TableCell>
                       <TableCell>{shipment.orderIds.length} pedidos</TableCell>
                       <TableCell>
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${shipment.status === "shipped" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}`}>
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${shipment.status === "shipped" ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>
                           {shipment.status === "shipped" ? "Enviado/Concluído" : "Aguardando Comprovante"}
                         </span>
                       </TableCell>
@@ -354,7 +348,7 @@ export default function ShipmentsPage() {
                     <span className="text-xs text-slate-400">
                       {format(shipment.shippingDate, 'dd/MM/yyyy')} · {shipment.orderIds.length} pedidos
                     </span>
-                    <span className={`mt-1 w-fit px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${shipment.status === "shipped" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}`}>
+                    <span className={`mt-1 w-fit px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${shipment.status === "shipped" ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>
                       {shipment.status === "shipped" ? "Enviado" : "Aguardando"}
                     </span>
                   </div>

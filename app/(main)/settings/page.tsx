@@ -3,27 +3,15 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Package, Images, Users, ChevronRight } from "lucide-react";
+import { Package, Users, ChevronRight } from "lucide-react";
 import { useUserRole } from "@/lib/user-context";
 
 const settingsItems = [
-  {
-    to: "/reports",
-    icon: FileText,
-    label: "Relatórios",
-    description: "Visualize relatórios de pedidos e envios por campo",
-  },
   {
     to: "/products",
     icon: Package,
     label: "Catálogo",
     description: "Gerencie produtos e disponibilidade",
-  },
-  {
-    to: "/gallery",
-    icon: Images,
-    label: "Galeria",
-    description: "Imagens e materiais da campanha",
   },
   {
     to: "/admin",

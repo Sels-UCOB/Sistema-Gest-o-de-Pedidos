@@ -308,9 +308,9 @@ export default function ProductsPage() {
         )}
       </div>
 
-      <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-4">
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-4">
         {isAdmin && (
-          <Card className="lg:col-span-1 border-slate-800 bg-slate-900/50 order-2 lg:order-1">
+          <Card className="lg:col-span-1 border-slate-800 bg-slate-900/50 order-2 lg:order-1 self-start">
             <CardHeader>
               <CardTitle className="text-lg">Entrada de Material</CardTitle>
               <CardDescription>

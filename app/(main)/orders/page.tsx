@@ -5,6 +5,7 @@ import { useConfirm } from "@/hooks/use-confirm";
 import { Order, OrderItem, Product } from "@/lib/db";
 import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deleteOrder, deductInventoryStock, getInventory, uploadOrderPhoto, deleteOrderPhotos, deleteOrderAllPhotos } from "@/lib/supabase-db";
 import type { InventoryRow } from "@/lib/supabase-db";
+import { formatAge } from "@/lib/utils";
 
 // ── Cache local (stale-while-revalidate) ─────────────────────────────────────
 const CK_ORDERS    = "v1_orders_list";
@@ -19,12 +20,6 @@ function cacheWrite<T>(key: string, data: T) {
 }
 function cacheTsRead(key: string): number | null {
   try { const r = localStorage.getItem(key); return r ? (JSON.parse(r).ts as number) : null; } catch { return null; }
-}
-function formatAge(ts: number): string {
-  const m = Math.floor((Date.now() - ts) / 60000);
-  if (m < 1) return "Atualizado agora";
-  if (m < 60) return `Atualizado há ${m} min`;
-  return `Atualizado há ${Math.floor(m / 60)}h`;
 }
 import { CAMPO_MAP, WAREHOUSES, WarehouseId } from "@/lib/campos";
 import { findBestMatch, findTopMatches } from "@/lib/string-utils";
@@ -681,7 +676,7 @@ export default function OrdersPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {confirmDialog}
       <div>
         <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Gestão de Pedidos</h1>
@@ -689,13 +684,13 @@ export default function OrdersPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3 md:w-[520px]">
+        <TabsList className="grid w-full grid-cols-3 md:w-[560px]">
           <TabsTrigger value="create">Criar</TabsTrigger>
           <TabsTrigger value="wpp"><span className="hidden sm:inline">Via </span>WPP</TabsTrigger>
           <TabsTrigger value="list"><span className="sm:hidden">Lista</span><span className="hidden sm:inline">Gerenciar</span></TabsTrigger>
         </TabsList>
 
-        <TabsContent value="list" className="mt-6">
+        <TabsContent value="list" className="mt-8">
           {separatingOrder && !packedPhotoQueue ? (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -1567,15 +1562,15 @@ export default function OrdersPage() {
           }}
         >
           <div
-            className={`relative w-full max-w-sm mx-4 rounded-xl p-4 ${packedPhotoQueue ? 'bg-green-50 border border-green-200' : 'bg-white'}`}
+            className={`relative w-full max-w-sm mx-4 rounded-xl p-4 ${packedPhotoQueue ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-slate-900 border border-slate-800'}`}
             onClick={e => e.stopPropagation()}
           >
             {/* Botão fechar */}
             <button
               className={`absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full text-lg font-bold transition-colors ${
                 packedPhotoQueue
-                  ? 'text-green-700/60 hover:text-green-900 hover:bg-green-100'
-                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                  ? 'text-emerald-500/60 hover:text-emerald-300 hover:bg-emerald-500/10'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               }`}
               onClick={() => {
                 setPhotoItemQueue(null);
@@ -1589,13 +1584,13 @@ export default function OrdersPage() {
             {photoUploading ? (
               <div className="flex flex-col items-center justify-center py-10 gap-3">
                 <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                <p className="text-slate-600 text-sm">Enviando foto...</p>
+                <p className="text-slate-400 text-sm">Enviando foto...</p>
               </div>
             ) : packedPhotoQueue ? (
               <>
-                <h2 className="text-green-800 font-semibold text-base mb-1">Pedido Separado!</h2>
-                <p className="text-green-700 text-sm mb-1">Todos os itens foram separados. Tire uma foto das caixas fechadas para encerrar o pedido.</p>
-                <p className="text-green-600/70 text-xs mb-4">Você pode adicionar a foto depois reabrindo o pedido.</p>
+                <h2 className="text-emerald-300 font-semibold text-base mb-1">Pedido Separado!</h2>
+                <p className="text-emerald-400 text-sm mb-1">Todos os itens foram separados. Tire uma foto das caixas fechadas para encerrar o pedido.</p>
+                <p className="text-emerald-500/70 text-xs mb-4">Você pode adicionar a foto depois reabrindo o pedido.</p>
                 <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg bg-green-600 hover:bg-green-700 text-white cursor-pointer flex-col items-center gap-2 justify-center" })}>
                   <Package className="h-8 w-8 shrink-0" />
                   <span>Foto do Pedido Embalado</span>
@@ -1604,8 +1599,8 @@ export default function OrdersPage() {
               </>
             ) : (
               <>
-                <h2 className="font-semibold text-base mb-1 text-slate-800">Foto do Item Separado</h2>
-                <p className="text-sm text-slate-600 mb-4">Tire uma foto de {photoItemQueue?.quantity} unidades de {photoItemQueue?.name}</p>
+                <h2 className="font-semibold text-base mb-1 text-white">Foto do Item Separado</h2>
+                <p className="text-sm text-slate-400 mb-4">Tire uma foto de {photoItemQueue?.quantity} unidades de {photoItemQueue?.name}</p>
                 <label className={buttonVariants({ size: "lg", className: "w-full h-24 text-lg cursor-pointer flex-col items-center gap-2 justify-center" })}>
                   <Camera className="h-8 w-8 shrink-0" />
                   <span>Tirar Foto / Anexar</span>

@@ -519,3 +519,160 @@ export async function deleteFiorinoPlan(id: string): Promise<void> {
   const { error } = await supabase.from("fiorino_plans").delete().eq("id", id);
   if (error) throw error;
 }
+
+// ─── Inventory Sessions ───────────────────────────────────────────────────────
+
+export interface InventorySessionRow {
+  id: string;
+  user_id: string;
+  campo: string | null;
+  counter_name: string;
+  location: string | null;
+  status: "active" | "completed";
+  item_count: number;
+  counted_items: number;
+  items: object[];
+  started_at: string;
+  ended_at: string | null;
+}
+
+export interface InventoryCountRow {
+  id: string;
+  session_id: string;
+  item_code: string;
+  item_name: string;
+  group_name: string | null;
+  saldo: number;
+  custo: number;
+  counted_qty: number;
+  counted_at: string;
+}
+
+function mapSession(row: Record<string, unknown>): InventorySessionRow {
+  return {
+    id: row.id as string,
+    user_id: row.user_id as string,
+    campo: (row.campo as string | null) ?? null,
+    counter_name: row.counter_name as string,
+    location: (row.location as string | null) ?? null,
+    status: row.status as "active" | "completed",
+    item_count: (row.item_count as number) ?? 0,
+    counted_items: (row.counted_items as number) ?? 0,
+    items: (row.items as object[]) ?? [],
+    started_at: row.started_at as string,
+    ended_at: (row.ended_at as string | null) ?? null,
+  };
+}
+
+export async function createInventorySession(params: {
+  counterName: string;
+  location: string;
+  campo: string | null;
+  itemCount: number;
+  items: object[];
+}): Promise<InventorySessionRow> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Not authenticated");
+  const { data, error } = await supabase
+    .from("inventory_sessions")
+    .insert({
+      user_id: session.user.id,
+      campo: params.campo,
+      counter_name: params.counterName,
+      location: params.location || null,
+      status: "active",
+      item_count: params.itemCount,
+      counted_items: 0,
+      items: params.items,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return mapSession(data);
+}
+
+export async function getActiveInventorySession(): Promise<InventorySessionRow | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+  const { data, error } = await supabase
+    .from("inventory_sessions")
+    .select("*")
+    .eq("user_id", session.user.id)
+    .eq("status", "active")
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapSession(data) : null;
+}
+
+// Todas as sessões ativas visíveis ao usuário (próprias + mesmo campo via RLS)
+export async function getActiveFieldSessions(): Promise<InventorySessionRow[]> {
+  const { data, error } = await supabase
+    .from("inventory_sessions")
+    .select("*")
+    .eq("status", "active")
+    .order("started_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(mapSession);
+}
+
+export async function getInventorySessions(): Promise<InventorySessionRow[]> {
+  const { data, error } = await supabase
+    .from("inventory_sessions")
+    .select("*")
+    .order("started_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return (data ?? []).map(mapSession);
+}
+
+export async function completeInventorySession(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("inventory_sessions")
+    .update({ status: "completed", ended_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function updateInventorySessionProgress(id: string, countedItems: number): Promise<void> {
+  const { error } = await supabase
+    .from("inventory_sessions")
+    .update({ counted_items: countedItems })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function getSessionCounts(sessionId: string): Promise<InventoryCountRow[]> {
+  const { data, error } = await supabase
+    .from("inventory_counts")
+    .select("*")
+    .eq("session_id", sessionId)
+    .order("counted_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as InventoryCountRow[];
+}
+
+export async function upsertInventoryCount(params: {
+  sessionId: string;
+  itemCode: string;
+  itemName: string;
+  groupName: string | null;
+  saldo: number;
+  custo: number;
+  qty: number;
+}): Promise<void> {
+  const { error } = await supabase
+    .from("inventory_counts")
+    .upsert({
+      session_id: params.sessionId,
+      item_code: params.itemCode,
+      item_name: params.itemName,
+      group_name: params.groupName,
+      saldo: params.saldo,
+      custo: params.custo,
+      counted_qty: params.qty,
+      counted_at: new Date().toISOString(),
+    }, { onConflict: "session_id,item_code" });
+  if (error) throw error;
+}

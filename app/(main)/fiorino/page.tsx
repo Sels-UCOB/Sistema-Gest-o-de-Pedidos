@@ -553,14 +553,14 @@ export default function FiorinoPage() {
 
         {/* 3D Viewer */}
         <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-900/40
-                        h-[50vw] min-h-[180px] max-h-[240px]
-                        md:h-[600px] md:max-h-none md:flex-1">
+                        h-[50vw] min-h-[180px] max-h-[260px]
+                        md:h-[660px] lg:h-[720px] md:max-h-none md:flex-1">
           <FiorinoViewer boxes={boxes} />
         </div>
 
         {/* Controls panel */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden
-                        md:w-[300px] md:h-[600px] md:flex md:flex-col md:shrink-0">
+                        md:w-[340px] lg:w-[380px] md:h-[660px] lg:h-[720px] md:flex md:flex-col md:shrink-0">
 
           <Tabs value={activeTab} onValueChange={setActiveTab}
             className="flex-1 min-h-0 gap-0 md:flex md:flex-col">

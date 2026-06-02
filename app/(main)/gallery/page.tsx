@@ -219,15 +219,15 @@ export default function GalleryPage() {
         </p>
       </div>
 
-      <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-start sm:items-center">
+      <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 items-start sm:items-center">
         <Input
           placeholder="Buscar cliente / transportadora..."
           value={filterCustomer}
           onChange={e => setFilterCustomer(e.target.value)}
-          className="sm:w-64 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
+          className="w-full sm:w-72 h-10 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
         />
         <Select value={filterCampaign} onValueChange={v => setFilterCampaign(v ?? "all")}>
-          <SelectTrigger className="sm:w-56 bg-slate-900 border-slate-700 text-slate-200">
+          <SelectTrigger className="w-full sm:w-56 h-10 bg-slate-900 border-slate-700 text-slate-200">
             <span className="flex-1 text-left text-sm truncate">
               {filterCampaign === "all" ? "Todas as campanhas" : filterCampaign}
             </span>
@@ -238,7 +238,7 @@ export default function GalleryPage() {
           </SelectContent>
         </Select>
         <Select value={filterType} onValueChange={v => setFilterType(v as typeof filterType)}>
-          <SelectTrigger className="sm:w-52 bg-slate-900 border-slate-700 text-slate-200">
+          <SelectTrigger className="w-full sm:w-52 h-10 bg-slate-900 border-slate-700 text-slate-200">
             <span className="flex-1 text-left text-sm truncate">
               {filterType === "all" ? "Todos os tipos"
                 : filterType === "item" ? "Itens separados"
@@ -265,7 +265,7 @@ export default function GalleryPage() {
             : "Nenhuma foto encontrada para os filtros selecionados."}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {filtered.map(entry => (
             <PhotoCard
               key={entry.id}

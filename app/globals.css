@@ -2,7 +2,16 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out;
+}
+
 @custom-variant dark (&:is(.dark *));
+@custom-variant dim (&:is(.dim *));
 
 @theme inline {
     --font-heading: var(--font-sans);
