@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ShoppingCart, Truck, LogOut, Shield, Container, Settings2, ClipboardList, Sun, Moon, BarChart2, Images, MoreHorizontal, BookOpen } from "lucide-react";
+import { LogOut, Shield, Sun, Moon, Home } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { UserContext } from "@/lib/user-context";
@@ -33,6 +33,61 @@ function clearProfileCache() {
   try { localStorage.removeItem(PROFILE_CACHE_KEY); } catch {}
 }
 
+type Tab = { label: string; href: string; exact?: boolean };
+type Section = {
+  label: string;
+  paths: string[];
+  tabs: (ctx: { isAdmin: boolean; hasFiorino: boolean }) => Tab[];
+};
+
+const SECTIONS: Section[] = [
+  {
+    label: "Vendas",
+    paths: ["/orders", "/shipments"],
+    tabs: () => [
+      { label: "Pedidos", href: "/orders" },
+      { label: "Envios", href: "/shipments" },
+    ],
+  },
+  {
+    label: "Logística",
+    paths: ["/fiorino", "/estoque"],
+    tabs: ({ isAdmin, hasFiorino }) => [
+      ...(isAdmin || hasFiorino ? [{ label: "Fiorino", href: "/fiorino" }] : []),
+      { label: "Estoque", href: "/estoque" },
+    ],
+  },
+  {
+    label: "Gestão",
+    paths: ["/reports", "/gallery", "/products", "/admin", "/settings"],
+    tabs: ({ isAdmin }) =>
+      isAdmin
+        ? [
+            { label: "Relatórios", href: "/reports" },
+            { label: "Galeria", href: "/gallery" },
+            { label: "Configurações", href: "/settings" },
+          ]
+        : [],
+  },
+  {
+    label: "Campanhas",
+    paths: ["/campanhas"],
+    tabs: () => [
+      { label: "Acertos", href: "/campanhas/acertos" },
+      { label: "Importação", href: "/campanhas", exact: true },
+      { label: "Lançamentos", href: "/campanhas/lancamentos" },
+      { label: "Líderes", href: "/campanhas/lancamentos-lideres" },
+      { label: "Encerramento", href: "/campanhas/encerramento" },
+      { label: "Configurações", href: "/campanhas/configuracoes" },
+    ],
+  },
+];
+
+function isTabActive(tab: Tab, pathname: string): boolean {
+  if (tab.exact) return pathname === tab.href;
+  return pathname === tab.href || pathname.startsWith(tab.href + "/");
+}
+
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -42,7 +97,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "dim">("dark");
   const menuRef = useRef<HTMLDivElement>(null);
   const lastHiddenRef = useRef(0);
@@ -50,7 +104,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     const saved = (localStorage.getItem("theme") as "dark" | "dim") ?? "dark";
     setTheme(saved);
-    document.documentElement.classList.add("dark"); // sempre presente para as variáveis CSS
+    document.documentElement.classList.add("dark");
     document.documentElement.classList.toggle("dim", saved === "dim");
   }, []);
 
@@ -61,7 +115,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     document.documentElement.classList.toggle("dim", next === "dim");
   };
 
-  // Restaura perfil do cache imediatamente — evita flash de "operador" enquanto o fetch acontece
   useEffect(() => {
     const cached = readProfileCache();
     if (cached) setProfile(cached);
@@ -99,7 +152,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             writeProfileCache(data);
           }
         } catch {
-          // fetch travou ou falhou — mantém o perfil em cache já restaurado
+          // mantém perfil em cache
         }
         setProfileLoaded(true);
       } else if (event === "TOKEN_REFRESHED") {
@@ -132,8 +185,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     };
   }, [router]);
 
-  useEffect(() => { setMoreOpen(false); }, [pathname]);
-
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -150,11 +201,17 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     router.replace("/");
   };
 
-  const displayName = profile?.full_name || user?.email || "";
-  const userInitial = displayName[0]?.toUpperCase() ?? "";
   const isAdmin = profile?.role === "admin";
   const campo = (profile?.campo as CampoId) ?? null;
   const hasFiorino = profile?.has_fiorino ?? false;
+  const displayName = profile?.full_name || user?.email || "";
+  const userInitial = displayName[0]?.toUpperCase() ?? "";
+  const isOnHub = pathname === "/hub";
+
+  const currentSection = SECTIONS.find((s) =>
+    s.paths.some((p) => pathname.startsWith(p))
+  ) ?? null;
+  const tabs = currentSection?.tabs({ isAdmin, hasFiorino }) ?? [];
 
   if (!authChecked) {
     return (
@@ -164,132 +221,59 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     );
   }
 
-  const pageTitleMap: Record<string, string> = {
-    "/products": "Catálogo",
-    "/admin": "Usuários",
-    "/campanhas/lancamentos-lideres": "Líderes",
-    "/campanhas/lancamentos": "Lançamentos",
-    "/campanhas/encerramento": "Encerramento",
-    "/campanhas/acertos": "Painel de Acertos",
-    "/campanhas/configuracoes": "Configurações — Campanhas",
-    "/campanhas": "Importação",
-  };
-  const currentPageTitle =
-    Object.entries(pageTitleMap).find(([path]) => pathname.startsWith(path))?.[1] ?? null;
-
-  type NavItem = { to: string; icon: React.ComponentType<{ className?: string }>; label: string; activeFor: string[] };
-  const navGroups: { label: string; items: NavItem[] }[] = [
-    {
-      label: "Vendas",
-      items: [
-        { to: "/orders", icon: ShoppingCart, label: "Pedidos", activeFor: ["/orders"] },
-        { to: "/shipments", icon: Truck, label: "Envios", activeFor: ["/shipments"] },
-      ],
-    },
-    {
-      label: "Logística",
-      items: [
-        ...(isAdmin || hasFiorino ? [{ to: "/fiorino", icon: Container, label: "Fiorino", activeFor: ["/fiorino"] }] : []),
-        { to: "/estoque", icon: ClipboardList, label: "Estoque", activeFor: ["/estoque"] },
-      ],
-    },
-    ...(isAdmin ? [{
-      label: "Gestão",
-      items: [
-        { to: "/reports", icon: BarChart2, label: "Relatórios", activeFor: ["/reports"] },
-        { to: "/gallery", icon: Images, label: "Galeria", activeFor: ["/gallery"] },
-      ],
-    }] : []),
-    {
-      label: "Campanhas",
-      items: [
-        { to: "/campanhas/acertos", icon: BookOpen, label: "Acertos", activeFor: ["/campanhas"] },
-      ],
-    },
-  ];
-  const configItem: NavItem = { to: "/settings", icon: Settings2, label: "Configurações", activeFor: ["/settings", "/products", "/admin"] };
-  const navItems = [...navGroups.flatMap(g => g.items), ...(isAdmin ? [configItem] : [])];
-
-  // Mobile nav: Vendas + Logística + Campanhas ficam visíveis;
-  // Gestão + Configurações vão para o painel "Mais" (só admins chegam aqui)
-  const primaryMobileItems = navGroups.filter(g => g.label !== "Gestão").flatMap(g => g.items);
-  const overflowMobileItems = [
-    ...navGroups.filter(g => g.label === "Gestão").flatMap(g => g.items),
-    ...(isAdmin ? [configItem] : []),
-  ];
-  const hasOverflow = overflowMobileItems.length > 0;
-  const isMoreActive = overflowMobileItems.some(item => item.activeFor.some(p => pathname.startsWith(p)));
-
   return (
-    <div className="flex h-dvh bg-background text-foreground font-sans overflow-hidden">
-      {/* Sidebar — desktop only */}
-      <aside className="hidden md:flex flex-col w-52 shrink-0 border-r border-sidebar-border bg-sidebar">
-        <div className="pt-5 pb-4 px-4 flex flex-col items-center gap-2 border-b border-sidebar-border">
-          <div className="w-12 h-12 bg-[#6C63FF] rounded-2xl flex items-center justify-center shadow-md shadow-black/30">
-            <img src="/logo.png" alt="Sels UCOB" className="w-8 h-8 object-contain brightness-0 invert" />
+    <div className="flex h-dvh flex-col bg-background text-foreground font-sans overflow-hidden">
+      <header className="shrink-0 border-b border-border bg-sidebar/80 backdrop-blur-md">
+        {/* Barra principal */}
+        <div className="h-14 flex items-center justify-between px-4 md:px-6">
+          {/* Esquerda: logo/hub + seção + tabs (desktop) */}
+          <div className="flex items-center gap-2 min-w-0">
+            <Link
+              href="/hub"
+              className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#6C63FF]/20 hover:bg-[#6C63FF]/30 transition-colors shrink-0"
+              title="Início"
+            >
+              <Home className="w-4 h-4 text-[#6C63FF]" />
+            </Link>
+
+            {currentSection && (
+              <>
+                <span className="text-border/60 select-none">/</span>
+                <span className="font-semibold text-foreground uppercase tracking-wider text-sm shrink-0">
+                  {currentSection.label}
+                </span>
+
+                {/* Tabs inline — só desktop */}
+                {tabs.length > 0 && (
+                  <div className="hidden md:flex items-center gap-0.5 ml-3">
+                    {tabs.map((tab) => (
+                      <Link
+                        key={tab.href}
+                        href={tab.href}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
+                          isTabActive(tab, pathname)
+                            ? "bg-[#6C63FF] text-white"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                        )}
+                      >
+                        {tab.label}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {isOnHub && (
+              <span className="font-semibold text-foreground uppercase tracking-wider text-sm">
+                Início
+              </span>
+            )}
           </div>
-          <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-muted-foreground">Sels UCOB</p>
-        </div>
-        <nav className="px-3 mt-4 pb-4 flex-1 flex flex-col">
-          {/* Grupos principais */}
-          {navGroups.map((group, gi) => (
-            <div key={gi} className={cn(gi > 0 && "mt-4")}>
-              <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                {group.label}
-              </p>
-              {group.items.map((item) => {
-                const isActive = item.activeFor.some(p => pathname.startsWith(p));
-                return (
-                  <Link
-                    key={item.to}
-                    href={item.to}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors",
-                      isActive
-                        ? "bg-[#6C63FF] text-white font-medium"
-                        : "text-sidebar-accent-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                    )}
-                  >
-                    <item.icon className={cn("w-4 h-4 shrink-0", isActive ? "text-white" : "text-sidebar-accent-foreground/60")} />
-                    <span className="text-sm">{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
 
-          {/* Configurações — sempre no fundo, só admin */}
-          {isAdmin && (() => {
-            const isActive = configItem.activeFor.some(p => pathname.startsWith(p));
-            return (
-              <div className="mt-auto pt-3 border-t border-sidebar-border">
-                <Link
-                  href={configItem.to}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors",
-                    isActive
-                      ? "bg-[#6C63FF] text-white font-medium"
-                      : "text-sidebar-accent-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                  )}
-                >
-                  <configItem.icon className={cn("w-4 h-4 shrink-0", isActive ? "text-white" : "text-sidebar-accent-foreground/60")} />
-                  <span className="text-sm">{configItem.label}</span>
-                </Link>
-              </div>
-            );
-          })()}
-        </nav>
-      </aside>
-
-      {/* Main */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-background">
-        <header className="h-14 shrink-0 flex items-center justify-between px-4 md:px-6 border-b border-border bg-sidebar/80 backdrop-blur-md">
-          <span className="font-semibold text-foreground uppercase tracking-wider text-sm">
-            {currentPageTitle ?? navItems.find((i) => i.activeFor.some(p => pathname.startsWith(p)))?.label ?? "Dashboard"}
-          </span>
-
-          <div className="flex items-center gap-2">
-            {/* Theme toggle */}
+          {/* Direita: tema + usuário */}
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={toggleTheme}
               className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -298,7 +282,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            {/* User menu */}
             <div className="relative" ref={menuRef}>
               <button
                 onClick={() => setMenuOpen((v) => !v)}
@@ -329,84 +312,35 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               )}
             </div>
           </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto overscroll-y-contain p-4 md:p-6 lg:p-8">
-          <div className="mx-auto min-h-full max-w-7xl w-full">
-            <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded, refreshTick, hasFiorino }}>
-              {children}
-            </UserContext.Provider>
-          </div>
         </div>
 
-        {/* Bottom nav — mobile only */}
-        <nav className="shrink-0 relative flex md:hidden border-t border-border bg-sidebar/95 backdrop-blur-md z-30" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-
-          {/* Painel "Mais" */}
-          {moreOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-              <div className="absolute bottom-full left-0 right-0 z-50 bg-sidebar border-t border-border shadow-2xl shadow-black/60 p-3 space-y-1 animate-fade-in">
-                {overflowMobileItems.map(item => {
-                  const isActive = item.activeFor.some(p => pathname.startsWith(p));
-                  return (
-                    <Link
-                      key={item.to}
-                      href={item.to}
-                      onClick={() => setMoreOpen(false)}
-                      className={cn(
-                        "flex items-center gap-3 px-4 py-3 rounded-xl transition-colors",
-                        isActive
-                          ? "bg-[#6C63FF] text-white font-medium"
-                          : "text-sidebar-accent-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                      )}
-                    >
-                      <item.icon className={cn("w-5 h-5 shrink-0", isActive ? "text-white" : "text-sidebar-accent-foreground/60")} />
-                      <span className="text-sm">{item.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {/* Itens primários */}
-          {primaryMobileItems.map(item => {
-            const isActive = item.activeFor.some(p => pathname.startsWith(p));
-            return (
+        {/* Tabs em mobile — barra rolável abaixo do header */}
+        {currentSection && tabs.length > 0 && (
+          <div className="md:hidden flex gap-1 px-3 pb-2 overflow-x-auto scrollbar-none">
+            {tabs.map((tab) => (
               <Link
-                key={item.to}
-                href={item.to}
-                onClick={() => setMoreOpen(false)}
+                key={tab.href}
+                href={tab.href}
                 className={cn(
-                  "flex-1 flex flex-col items-center gap-1 py-3.5 transition-colors active:bg-sidebar-accent/60",
-                  isActive ? "text-foreground" : "text-muted-foreground"
+                  "shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
+                  isTabActive(tab, pathname)
+                    ? "bg-[#6C63FF] text-white"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 )}
               >
-                <item.icon className={cn("w-5 h-5", isActive ? "text-[#6C63FF]" : "text-muted-foreground/60")} />
-                <span className={cn("text-[10px] font-semibold tracking-wide", isActive ? "text-foreground" : "text-muted-foreground")}>
-                  {item.label}
-                </span>
+                {tab.label}
               </Link>
-            );
-          })}
+            ))}
+          </div>
+        )}
+      </header>
 
-          {/* Botão "Mais" — só aparece para admins */}
-          {hasOverflow && (
-            <button
-              onClick={() => setMoreOpen(v => !v)}
-              className={cn(
-                "flex-1 flex flex-col items-center gap-1 py-3.5 transition-colors active:bg-sidebar-accent/60",
-                (moreOpen || isMoreActive) ? "text-foreground" : "text-muted-foreground"
-              )}
-            >
-              <MoreHorizontal className={cn("w-5 h-5", (moreOpen || isMoreActive) ? "text-[#6C63FF]" : "text-muted-foreground/60")} />
-              <span className={cn("text-[10px] font-semibold tracking-wide", (moreOpen || isMoreActive) ? "text-foreground" : "text-muted-foreground")}>
-                Mais
-              </span>
-            </button>
-          )}
-        </nav>
+      <main className="flex-1 overflow-y-auto overscroll-y-contain p-4 md:p-6 lg:p-8">
+        <div className="mx-auto min-h-full max-w-7xl w-full">
+          <UserContext.Provider value={{ isAdmin, displayName, campo, profileLoaded, refreshTick, hasFiorino }}>
+            {children}
+          </UserContext.Provider>
+        </div>
       </main>
     </div>
   );
