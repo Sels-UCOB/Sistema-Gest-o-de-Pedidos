@@ -8,7 +8,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR" className="dark">
+    <html lang="pt-BR" className="dark" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `try{if(localStorage.getItem('theme')==='dim')document.documentElement.classList.add('dim')}catch(e){}` }} />
+      </head>
       <body>{children}</body>
     </html>
   );
