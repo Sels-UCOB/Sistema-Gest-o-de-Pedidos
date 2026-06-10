@@ -13,7 +13,7 @@ import type { User } from "@supabase/supabase-js";
 type Profile = { full_name: string | null; role: "admin" | "operator"; campo: CampoId | null; has_fiorino: boolean };
 
 const PROFILE_CACHE_KEY = "v1_profile";
-const PROFILE_CACHE_TTL = 8 * 60 * 60 * 1000;
+const PROFILE_CACHE_TTL = 30 * 60 * 1000;
 
 function readProfileCache(): Profile | null {
   try {
@@ -120,6 +120,27 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     if (cached) setProfile(cached);
   }, []);
 
+  const fetchAndSetProfile = async (userId: string): Promise<boolean> => {
+    try {
+      const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 10000));
+      const fetchProfile = async () => {
+        const { data } = await supabase
+          .from("profiles")
+          .select("full_name, role, campo, has_fiorino")
+          .eq("id", userId)
+          .single();
+        return data as Profile | null;
+      };
+      const data = await Promise.race([fetchProfile(), timeout]);
+      if (data) {
+        setProfile(data);
+        writeProfileCache(data);
+        return true;
+      }
+    } catch {}
+    return false;
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -135,26 +156,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       setAuthChecked(true);
 
       if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
-        try {
-          const fetchProfile = async () => {
-            const { data } = await supabase
-              .from("profiles")
-              .select("full_name, role, campo, has_fiorino")
-              .eq("id", session.user.id)
-              .single();
-            return data as Profile | null;
-          };
-          const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 8000));
-          const data = await Promise.race([fetchProfile(), timeout]);
-          if (cancelled) return;
-          if (data) {
-            setProfile(data);
-            writeProfileCache(data);
-          }
-        } catch {
-          // mantém perfil em cache
-        }
-        setProfileLoaded(true);
+        await fetchAndSetProfile(session.user.id);
+        if (!cancelled) setProfileLoaded(true);
       } else if (event === "TOKEN_REFRESHED") {
         setRefreshTick(t => t + 1);
       }
@@ -164,7 +167,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [router]);
+  }, [router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onVisibility = async () => {
@@ -173,17 +176,22 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       } else if (Date.now() - lastHiddenRef.current > 2 * 60 * 1000) {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.replace("/"); return; }
+        await fetchAndSetProfile(session.user.id);
         setRefreshTick(t => t + 1);
       }
     };
-    const onOnline = () => setRefreshTick(t => t + 1);
+    const onOnline = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) await fetchAndSetProfile(session.user.id);
+      setRefreshTick(t => t + 1);
+    };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("online", onOnline);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("online", onOnline);
     };
-  }, [router]);
+  }, [router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
