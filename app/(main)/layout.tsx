@@ -10,7 +10,7 @@ import { UserContext } from "@/lib/user-context";
 import type { CampoId } from "@/lib/campos";
 import type { User } from "@supabase/supabase-js";
 
-type Profile = { full_name: string | null; role: "admin" | "operator"; campo: CampoId | null; has_fiorino: boolean };
+type Profile = { full_name: string | null; role: "admin" | "operator"; campo: CampoId | null };
 
 const PROFILE_CACHE_KEY = "v1_profile";
 const PROFILE_CACHE_TTL = 30 * 60 * 1000;
@@ -122,11 +122,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   const fetchAndSetProfile = async (userId: string): Promise<boolean> => {
     const doFetch = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("profiles")
-        .select("full_name, role, campo, has_fiorino")
+        .select("full_name, role, campo")
         .eq("id", userId)
         .single();
+      if (error) console.warn("[profile] query error:", error.message, error.code);
       return data as Profile | null;
     };
 
@@ -139,9 +140,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           writeProfileCache(data);
           return true;
         }
-      } catch {}
+        console.warn(`[profile] tentativa ${attempt + 1} retornou null`);
+      } catch (e) {
+        console.warn(`[profile] tentativa ${attempt + 1} exception:`, e);
+      }
       if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
     }
+    console.error("[profile] todas as tentativas falharam para userId:", userId);
     return false;
   };
 
@@ -215,7 +220,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   const isAdmin = profile?.role === "admin";
   const campo = (profile?.campo as CampoId) ?? null;
-  const hasFiorino = profile?.has_fiorino ?? false;
+  const hasFiorino = true;
   const displayName = profile?.full_name || user?.email || "";
   const userInitial = displayName[0]?.toUpperCase() ?? "";
   const isOnHub = pathname === "/hub";
