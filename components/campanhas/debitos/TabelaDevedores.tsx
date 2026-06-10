@@ -43,9 +43,9 @@ export function TabelaDevedores() {
           </div>
           {devedores.map((d) => (
             <div key={d.id} className="flex items-center gap-2">
-              <input className={cn(inputCls, "flex-1", encerrado && "opacity-50 cursor-not-allowed")} type="text" placeholder="Nome do colportor" value={d.nome} onChange={(e) => updateDevedor(d.id, { nome: e.target.value })} disabled={encerrado} />
+              <input className={cn(inputCls, "flex-1 min-w-0", encerrado && "opacity-50 cursor-not-allowed")} type="text" placeholder="Nome do colportor" value={d.nome} onChange={(e) => updateDevedor(d.id, { nome: e.target.value })} disabled={encerrado} />
               <input
-                className={cn(inputCls, "w-24 text-right", encerrado && "opacity-50 cursor-not-allowed")}
+                className={cn(inputCls, "w-28 shrink-0 text-right", encerrado && "opacity-50 cursor-not-allowed")}
                 type="number" placeholder="0,00" min={0} step="0.01"
                 value={d.valorDebito || ""}
                 onChange={(e) => updateDevedor(d.id, { valorDebito: parseFloat(e.target.value) || 0 })}
