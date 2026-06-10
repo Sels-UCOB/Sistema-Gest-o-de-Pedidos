@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useDebitos } from "@/lib/campanhas/context/DebitosContext";
 import { useAcerto } from "@/lib/campanhas/context/AcertoContext";
@@ -41,6 +41,19 @@ export function ResumoLideres() {
 
   const [expandidos, setExpandidos] = useState<Record<number, boolean>>({});
 
+  const possuiVeiculoSPA = state.config.lideres[0]?.possuiVeiculoSPA ?? false;
+
+  useEffect(() => {
+    const gastos0 = gastosLideres[0];
+    if (!gastos0) return;
+    const entry = gastos0.debitosAdicionais.find((d) => d.descricao === "Seguro Veículo");
+    if (possuiVeiculoSPA && !entry) {
+      addDebitoAdicional(0, { descricao: "Seguro Veículo", valor: 0 });
+    } else if (!possuiVeiculoSPA && entry) {
+      removeDebitoAdicional(0, entry.id);
+    }
+  }, [possuiVeiculoSPA, gastosLideres, addDebitoAdicional, removeDebitoAdicional]);
+
   const compraBonificada = state.dadosImportados?.bonificado ?? 0;
   const totalDevedores = useMemo(() => calcularTotalDevedores(devedores), [devedores]);
 
@@ -64,7 +77,7 @@ export function ResumoLideres() {
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold uppercase tracking-wider text-[#8B8FA8]">Resumo dos Líderes</h3>
-      <div className="flex flex-wrap gap-4">
+      <div className="space-y-4">
 
         {/* Leader cards */}
         {lideres.map((lider, idx) => {
@@ -82,7 +95,7 @@ export function ResumoLideres() {
           const expandido = expandidos[idx] ?? false;
 
           return (
-            <div key={lider.nome} className="flex-1 min-w-64 rounded-2xl bg-[#1A1F2E] border border-[#2A2F45] p-5 space-y-4">
+            <div key={lider.nome} className="w-full rounded-2xl bg-[#1A1F2E] border border-[#2A2F45] p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-base font-bold text-white">{lider.nome}</span>
               </div>
@@ -193,7 +206,7 @@ export function ResumoLideres() {
 
         {/* Caixa card */}
         {temCaixa && (
-          <div className="flex-1 min-w-64 rounded-2xl bg-[#1A1F2E] border border-[#2A2F45] p-5 space-y-4">
+          <div className="w-full rounded-2xl bg-[#1A1F2E] border border-[#2A2F45] p-5 space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-base font-bold text-white">{caixa.nome}</span>
               <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-[#6C63FF]/15 text-[#6C63FF] border border-[#6C63FF]/20">Caixa</span>

@@ -21,7 +21,7 @@ interface DebitosContextValue {
   removeDevedor: (id: string) => void;
   gastosLideres: GastosLider[];
   setGastosLider: (idx: number, gastos: number) => void;
-  addDebitoAdicional: (liderIdx: number) => void;
+  addDebitoAdicional: (liderIdx: number, preset?: { descricao: string; valor: number }) => void;
   updateDebitoAdicional: (
     liderIdx: number,
     id: string,
@@ -205,7 +205,7 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
     });
   }, [encerrado]);
 
-  const addDebitoAdicional = useCallback((liderIdx: number) => {
+  const addDebitoAdicional = useCallback((liderIdx: number, preset?: { descricao: string; valor: number }) => {
     if (encerrado) return;
     setGastosLideresState((prev) => {
       const next = prev.map((g) => ({
@@ -214,8 +214,8 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
       }));
       next[liderIdx].debitosAdicionais.push({
         id: genId(),
-        descricao: "",
-        valor: 0,
+        descricao: preset?.descricao ?? "",
+        valor: preset?.valor ?? 0,
       });
       return next;
     });
