@@ -333,8 +333,6 @@ export default function OrdersPage() {
     setParsedItems(items);
     setAmbiguousItems([]);
     setRawItems(items.filter(i => !i.productId.startsWith("unknown-")).map(i => `${i.quantity} - ${i.name}`).join("\n"));
-    setWppText("");
-    setWppResult(null);
     setWppEditSearch(null);
     setWppEditResults([]);
     setShowPreview(true);
@@ -580,6 +578,8 @@ export default function OrdersPage() {
       setRawItems("");
       setTipo("envio");
       setParsedItems([]);
+      setWppText("");
+      setWppResult(null);
       setShowPreview(false);
       setActiveTab("list");
       localStorage.removeItem('orderForm');
@@ -684,9 +684,8 @@ export default function OrdersPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3 md:w-[560px]">
+        <TabsList className="grid w-full grid-cols-2 md:w-95">
           <TabsTrigger value="create">Criar</TabsTrigger>
-          <TabsTrigger value="wpp"><span className="hidden sm:inline">Via </span>WPP</TabsTrigger>
           <TabsTrigger value="list"><span className="sm:hidden">Lista</span><span className="hidden sm:inline">Gerenciar</span></TabsTrigger>
         </TabsList>
 
@@ -1029,285 +1028,120 @@ export default function OrdersPage() {
                   </div>
                 </div>
 
-                <div className="space-y-4 relative">
-                  <div className="space-y-2 relative">
-                    <label className="text-sm font-medium flex justify-between">
-                      Produtos e Quantidades
-                      <span className="text-xs text-slate-400 font-normal">Coloque 1 item por linha</span>
-                    </label>
-                    <Textarea
-                      rows={10}
-                      className="font-mono text-sm leading-relaxed whitespace-pre-wrap"
-                      placeholder={"Ex:\n10 - vida de jesus\n5 - 21 dias para mudar"}
-                      value={rawItems}
-                      onBlur={() => setTimeout(() => setSuggestions([]), 150)}
-                      onChange={e => {
-                        setRawItems(e.target.value);
-                        const lines = e.target.value.split("\n");
-                        // Múltiplas linhas preenchidas = colagem — sem autocomplete
-                        if (lines.filter(l => l.trim().length > 0).length > 1) { setSuggestions([]); return; }
-                        const lastLine = lines[lines.length - 1].trim();
-                        const match = lastLine.match(/^(\d+)(?:\s*[-xX]\s*|\s+)(.+)$/);
-                        const searchStr = match ? match[2] : lastLine;
-                        if (searchStr.length >= 2 && products) {
-                          const filtered = products.filter(p =>
-                            p.name.toLowerCase().includes(searchStr.toLowerCase()) ||
-                            searchStr.toLowerCase().split(" ").some(word => word.length >= 3 && p.name.toLowerCase().includes(word))
-                          ).sort((a, b) => {
-                            const aLower = a.name.toLowerCase();
-                            const bLower = b.name.toLowerCase();
-                            const s = searchStr.toLowerCase();
-                            const aStarts = aLower.startsWith(s) ? 0 : aLower.includes(s) ? 1 : 2;
-                            const bStarts = bLower.startsWith(s) ? 0 : bLower.includes(s) ? 1 : 2;
-                            return aStarts - bStarts;
-                          }).slice(0, searchStr.length < 3 ? 10 : searchStr.length < 5 ? 8 : 5);
-                          setSuggestions(filtered);
-                        } else {
-                          setSuggestions([]);
-                        }
-                      }}
-                    />
-                    {suggestions.length > 0 && (
-                      <div className="absolute z-50 w-full max-w-[calc(100vw-2rem)] bg-slate-800 border border-slate-700 rounded-md shadow-lg mt-1 max-h-60 overflow-y-auto">
-                        {suggestions.map(s => (
-                          <div
-                            key={s.id}
-                            className="px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 cursor-pointer"
-                            onClick={() => {
-                              const lines = rawItems.split("\n");
-                              const lastLine = lines[lines.length - 1];
-                              const match = lastLine.match(/^(\d+)(?:\s*[-xX]\s*|\s+)/);
-                              const prefix = match ? match[0] : "";
-                              lines[lines.length - 1] = prefix + s.name;
-                              setRawItems(lines.join("\n"));
-                              setSuggestions([]);
-                            }}
-                          >
-                            <span className="text-slate-400 font-mono text-xs mr-2">{s.id}</span>
-                            {s.name}
-                          </div>
-                        ))}
-                      </div>
+                <div className="space-y-3">
+                  <label className="text-sm font-medium">Mensagem do Pedido</label>
+                  <Textarea
+                    rows={6}
+                    className="font-mono text-sm leading-relaxed"
+                    placeholder="Favor faturar 10 combos da vida e saúde e 5 bíblias para ABC!"
+                    value={wppText}
+                    onChange={e => { setWppText(e.target.value); setWppResult(null); }}
+                  />
+                  <Button
+                    className="w-full"
+                    onClick={handleConvertWpp}
+                    disabled={!wppText.trim() || !products || wppLoading}
+                  >
+                    {wppLoading ? (
+                      <><div className="mr-2 h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />Analisando...</>
+                    ) : (
+                      <><Wand2 className="mr-2 h-4 w-4" />Identificar Produtos</>
                     )}
-                  </div>
-                  <Button className="w-full md:w-auto" onClick={() => {
-                    setSuggestions([]);
-                    const lines = rawItems.split("\n");
-                    const lastLine = lines[lines.length - 1].trim();
-                    if (!lastLine.match(/^\d+/)) { lines.pop(); setRawItems(lines.join("\n")); }
-                    handleParseItems();
-                  }}>
-                    <Search className="mr-2 h-4 w-4" /> Validar Itens
                   </Button>
+
+                  {wppResult !== null && (
+                    <div className="space-y-3 pt-3 border-t border-slate-800">
+                      {wppResult.length === 0 ? (
+                        <p className="text-sm text-slate-500 text-center py-4">Nenhum item encontrado. Verifique o texto e tente novamente.</p>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-xs text-slate-500">
+                              {wppResult.filter(r => r.matched).length} de {wppResult.length} itens reconhecidos
+                            </p>
+                            {wppMode === "ai" && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">✦ IA Groq</span>
+                            )}
+                            {wppMode === "local" && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-700/60 text-slate-500 border border-slate-700">Análise local</span>
+                            )}
+                          </div>
+                          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                            {wppResult.map((item, i) => (
+                              <div
+                                key={i}
+                                className={`rounded-lg border overflow-hidden ${item.matched ? "border-emerald-800/40 bg-emerald-900/10" : "border-red-800/40 bg-red-900/10"}`}
+                              >
+                                <div className="flex items-center gap-2 px-3 py-2.5">
+                                  <div className="flex items-center shrink-0">
+                                    <button className="w-6 h-6 rounded text-slate-400 hover:text-white hover:bg-slate-700 text-sm font-bold transition-colors" onClick={() => updateWppQty(i, -1)}>−</button>
+                                    <span className="text-slate-300 font-mono text-sm w-8 text-center select-none">{item.qty}×</span>
+                                    <button className="w-6 h-6 rounded text-slate-400 hover:text-white hover:bg-slate-700 text-sm font-bold transition-colors" onClick={() => updateWppQty(i, 1)}>+</button>
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    {item.matched ? (
+                                      <>
+                                        <p className="text-sm text-emerald-300 font-medium truncate">{item.matched.name}</p>
+                                        {item.rawText.toLowerCase() !== item.matched.name.toLowerCase() && (
+                                          <p className="text-[10px] text-slate-600 truncate">"{item.rawText}"</p>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <p className="text-sm text-red-400 truncate">{item.rawText}<span className="text-slate-600 text-xs ml-1">— não encontrado</span></p>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                      className="text-[10px] text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 rounded px-1.5 py-0.5 transition-colors"
+                                      onClick={() => {
+                                        if (wppEditSearch?.idx === i) { setWppEditSearch(null); setWppEditResults([]); }
+                                        else { handleWppItemSearch(i, ""); }
+                                      }}
+                                    >
+                                      {item.matched ? "trocar" : "buscar"}
+                                    </button>
+                                    <span className={`text-xs font-bold ${item.matched ? "text-emerald-500" : "text-red-500"}`}>{item.matched ? "✓" : "✗"}</span>
+                                  </div>
+                                </div>
+                                {wppEditSearch?.idx === i && (
+                                  <div className="border-t border-slate-700 p-2 bg-slate-900/60 space-y-1">
+                                    <Input
+                                      autoFocus
+                                      placeholder="Buscar produto no catálogo..."
+                                      value={wppEditSearch.query}
+                                      onChange={e => handleWppItemSearch(i, e.target.value)}
+                                      className="h-7 text-xs bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+                                    />
+                                    {wppEditResults.length > 0 && (
+                                      <div className="bg-slate-800 rounded border border-slate-700 max-h-36 overflow-y-auto">
+                                        {wppEditResults.map(r => (
+                                          <button key={r.id} className="w-full text-left px-2 py-1.5 text-xs text-slate-200 hover:bg-indigo-600 transition-colors" onClick={() => updateWppProduct(i, r)}>
+                                            {r.name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {wppEditSearch.query.length >= 2 && wppEditResults.length === 0 && (
+                                      <p className="text-[10px] text-slate-600 px-1">Nenhum produto encontrado.</p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          <Button className="w-full" onClick={handleFillFromWpp}>
+                            <PlusCircle className="mr-2 h-4 w-4" />Validar e Criar Pedido
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="wpp" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Converter Mensagem WPP</CardTitle>
-              <CardDescription>Cole a mensagem informal do WhatsApp e extraia os itens automaticamente.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Textarea
-                rows={6}
-                className="font-mono text-sm leading-relaxed"
-                placeholder={"Ex: Favor faturar 10 combos da vida e saúde e 5 bíblias para ABC!"}
-                value={wppText}
-                onChange={e => { setWppText(e.target.value); setWppResult(null); }}
-              />
-              <Button
-                onClick={handleConvertWpp}
-                disabled={!wppText.trim() || !products || wppLoading}
-              >
-                {wppLoading ? (
-                  <><div className="mr-2 h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />Analisando...</>
-                ) : (
-                  <><Wand2 className="mr-2 h-4 w-4" />Converter</>
-                )}
-              </Button>
-
-              {wppResult !== null && (
-                <div className="space-y-3 pt-3 border-t border-slate-800">
-                  {wppResult.length === 0 ? (
-                    <p className="text-sm text-slate-500 text-center py-4">
-                      Nenhum item encontrado. Verifique o texto e tente novamente.
-                    </p>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-xs text-slate-500">
-                          {wppResult.filter(r => r.matched).length} de {wppResult.length} itens reconhecidos
-                        </p>
-                        {wppMode === "ai" && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">
-                            ✦ IA Groq
-                          </span>
-                        )}
-                        {wppMode === "local" && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-700/60 text-slate-500 border border-slate-700">
-                            Análise local
-                          </span>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        {wppResult.map((item, i) => (
-                          <div
-                            key={i}
-                            className={`rounded-lg border overflow-hidden ${
-                              item.matched
-                                ? "border-emerald-800/40 bg-emerald-900/10"
-                                : "border-red-800/40 bg-red-900/10"
-                            }`}
-                          >
-                            {/* Item row */}
-                            <div className="flex items-center gap-2 px-3 py-2.5">
-                              {/* Qty stepper */}
-                              <div className="flex items-center shrink-0">
-                                <button
-                                  className="w-6 h-6 rounded text-slate-400 hover:text-white hover:bg-slate-700 text-sm font-bold transition-colors"
-                                  onClick={() => updateWppQty(i, -1)}
-                                >−</button>
-                                <span className="text-slate-300 font-mono text-sm w-8 text-center select-none">{item.qty}×</span>
-                                <button
-                                  className="w-6 h-6 rounded text-slate-400 hover:text-white hover:bg-slate-700 text-sm font-bold transition-colors"
-                                  onClick={() => updateWppQty(i, 1)}
-                                >+</button>
-                              </div>
-
-                              {/* Product name */}
-                              <div className="flex-1 min-w-0">
-                                {item.matched ? (
-                                  <>
-                                    <p className="text-sm text-emerald-300 font-medium truncate">{item.matched.name}</p>
-                                    {item.rawText.toLowerCase() !== item.matched.name.toLowerCase() && (
-                                      <p className="text-[10px] text-slate-600 truncate">"{item.rawText}"</p>
-                                    )}
-                                  </>
-                                ) : (
-                                  <p className="text-sm text-red-400 truncate">
-                                    {item.rawText}
-                                    <span className="text-slate-600 text-xs ml-1">— não encontrado</span>
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Search toggle + status */}
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <button
-                                  className="text-[10px] text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 rounded px-1.5 py-0.5 transition-colors"
-                                  onClick={() => {
-                                    if (wppEditSearch?.idx === i) {
-                                      setWppEditSearch(null);
-                                      setWppEditResults([]);
-                                    } else {
-                                      handleWppItemSearch(i, "");
-                                    }
-                                  }}
-                                >
-                                  {item.matched ? "trocar" : "buscar"}
-                                </button>
-                                <span className={`text-xs font-bold ${item.matched ? "text-emerald-500" : "text-red-500"}`}>
-                                  {item.matched ? "✓" : "✗"}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Inline search panel */}
-                            {wppEditSearch?.idx === i && (
-                              <div className="border-t border-slate-700 p-2 bg-slate-900/60 space-y-1">
-                                <Input
-                                  autoFocus
-                                  placeholder="Buscar produto no catálogo..."
-                                  value={wppEditSearch.query}
-                                  onChange={e => handleWppItemSearch(i, e.target.value)}
-                                  className="h-7 text-xs bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-                                />
-                                {wppEditResults.length > 0 && (
-                                  <div className="bg-slate-800 rounded border border-slate-700 max-h-36 overflow-y-auto">
-                                    {wppEditResults.map(r => (
-                                      <button
-                                        key={r.id}
-                                        className="w-full text-left px-2 py-1.5 text-xs text-slate-200 hover:bg-indigo-600 transition-colors"
-                                        onClick={() => updateWppProduct(i, r)}
-                                      >
-                                        {r.name}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                                {wppEditSearch.query.length >= 2 && wppEditResults.length === 0 && (
-                                  <p className="text-[10px] text-slate-600 px-1">Nenhum produto encontrado.</p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      {wppResult.length > 0 && (
-                        <div className="pt-3 border-t border-slate-800 space-y-3">
-                          <p className="text-sm font-medium text-slate-300">Dados do pedido</p>
-                          <div className="flex rounded-lg border border-slate-700 overflow-hidden h-10">
-                            <button
-                              type="button"
-                              onClick={() => setTipo("envio")}
-                              className={`flex-1 text-sm font-medium transition-colors ${tipo === "envio" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"}`}
-                            >
-                              Envio Normal
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setTipo("acerto")}
-                              className={`flex-1 text-sm font-medium transition-colors border-l border-slate-700 ${tipo === "acerto" ? "bg-amber-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"}`}
-                            >
-                              Acerto
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <Input
-                              placeholder="Nome do cliente"
-                              value={customerName}
-                              onChange={e => { setCustomerName(e.target.value); setErrors(prev => ({...prev, customerName: undefined})); }}
-                              className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
-                            />
-                            <Input
-                              placeholder="Cidade de destino"
-                              value={destinationCity}
-                              onChange={e => { setDestinationCity(e.target.value); setErrors(prev => ({...prev, destinationCity: undefined})); }}
-                              className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
-                            />
-                            <Select value={campaignCode} onValueChange={v => { setCampaignCode(v || ""); setWarehouse(""); }}>
-                              <SelectTrigger className="bg-slate-900 border-slate-700 text-slate-200">
-                                <SelectValue placeholder="Campanha..." />
-                              </SelectTrigger>
-                              <SelectContent>{CAMPANHAS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                            </Select>
-                            <Select value={warehouse} onValueChange={v => setWarehouse(v as WarehouseId)} disabled={!campaignCode}>
-                              <SelectTrigger className="bg-slate-900 border-slate-700 text-slate-200">
-                                <SelectValue placeholder={campaignCode ? "Depósito..." : "Campanha primeiro"} />
-                              </SelectTrigger>
-                              <SelectContent>{warehouseOptions.map(w => <SelectItem key={w.id} value={w.id}>{w.label}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </div>
-                          {(errors.customerName || errors.destinationCity) && (
-                            <p className="text-red-400 text-xs">{errors.customerName || errors.destinationCity}</p>
-                          )}
-                          <Button className="w-full" onClick={handleFillFromWpp}>
-                            <PlusCircle className="mr-2 h-4 w-4" />
-                            Criar Pedido com estes itens
-                          </Button>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
 
       <Dialog open={showPreview} onOpenChange={(open) => { setShowPreview(open); if (!open) { setManualSearch(null); setManualSearchResults([]); setExpandedAmbiguous(new Set()); } }}>

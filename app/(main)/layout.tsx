@@ -52,8 +52,8 @@ const SECTIONS: Section[] = [
   {
     label: "Logística",
     paths: ["/fiorino", "/estoque"],
-    tabs: ({ isAdmin, hasFiorino }) => [
-      ...(isAdmin || hasFiorino ? [{ label: "Fiorino", href: "/fiorino" }] : []),
+    tabs: () => [
+      { label: "Fiorino", href: "/fiorino" },
       { label: "Estoque", href: "/estoque" },
     ],
   },
