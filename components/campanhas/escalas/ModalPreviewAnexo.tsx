@@ -144,7 +144,7 @@ export function ModalPreviewAnexo({ anexo, onClose }: Props) {
                     <img
                       src={logoBase64}
                       alt="Logo"
-                      className="absolute top-2 left-2 w-9 h-9 object-contain z-10 pointer-events-none"
+                      className="absolute top-2 left-2 w-20 h-20 object-contain z-10 pointer-events-none"
                     />
                   )}
                   {sheet.grid.length === 0 ? (
