@@ -47,7 +47,7 @@ export function PainelEscalas({ acertoId }: Props) {
         setAnexos(result.data);
         setTotal(result.total);
       } catch {
-        setError("Erro ao carregar escalas.");
+        setError("Erro ao carregar escalas. Tente novamente.");
       } finally {
         setLoading(false);
       }
@@ -67,7 +67,7 @@ export function PainelEscalas({ acertoId }: Props) {
       setPage(0);
       await load(0);
     } catch {
-      setError("Erro ao enviar arquivo. Verifique o bucket de storage e tente novamente.");
+      setError("Erro ao enviar arquivo. Tente novamente.");
     } finally {
       setUploading(false);
     }
@@ -83,7 +83,7 @@ export function PainelEscalas({ acertoId }: Props) {
       await softDeleteAnexo(id);
       await load(page);
     } catch {
-      setError("Erro ao excluir escala.");
+      setError("Erro ao excluir escala. Tente novamente.");
     }
   };
 
