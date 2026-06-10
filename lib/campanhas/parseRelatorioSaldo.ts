@@ -1,4 +1,4 @@
-﻿import * as XLSX from "xlsx";
+﻿import * as XLSX from "@e965/xlsx";
 import type { DadosImportados } from "@/lib/campanhas/types/acerto";
 
 function parseBRL(valor: unknown): number {

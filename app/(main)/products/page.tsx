@@ -112,7 +112,7 @@ export default function ProductsPage() {
     if (!file) return;
     setImporting(true);
     try {
-      const xlsx = await import("xlsx");
+      const xlsx = await import("@e965/xlsx");
       const buffer = await file.arrayBuffer();
       const workbook = xlsx.read(buffer, { type: "array" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
