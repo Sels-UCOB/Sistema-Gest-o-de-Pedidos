@@ -121,23 +121,27 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }, []);
 
   const fetchAndSetProfile = async (userId: string): Promise<boolean> => {
-    try {
-      const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 10000));
-      const fetchProfile = async () => {
-        const { data } = await supabase
-          .from("profiles")
-          .select("full_name, role, campo, has_fiorino")
-          .eq("id", userId)
-          .single();
-        return data as Profile | null;
-      };
-      const data = await Promise.race([fetchProfile(), timeout]);
-      if (data) {
-        setProfile(data);
-        writeProfileCache(data);
-        return true;
-      }
-    } catch {}
+    const doFetch = async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name, role, campo, has_fiorino")
+        .eq("id", userId)
+        .single();
+      return data as Profile | null;
+    };
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 12000));
+        const data = await Promise.race([doFetch(), timeout]);
+        if (data) {
+          setProfile(data);
+          writeProfileCache(data);
+          return true;
+        }
+      } catch {}
+      if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+    }
     return false;
   };
 
