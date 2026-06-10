@@ -1,9 +1,8 @@
-﻿"use client";
+"use client";
 
 import React, { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useConfiguracao } from "@/lib/campanhas/context/ConfiguracaoContext";
-import { useAcerto } from "@/lib/campanhas/context/AcertoContext";
 import { ConfirmDialog } from "./ConfirmDialog";
 import type { TipoLancamento } from "@/lib/campanhas/types/configuracao";
 
@@ -14,10 +13,10 @@ const thCls = "px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide
 const tdCls = "px-4 py-3 text-sm text-[#8B8FA8]";
 const btnSm = "px-2.5 py-1 rounded-lg text-xs font-medium transition-colors";
 
+const herdaDaCampanha = (conta: string) => conta.startsWith("4");
+
 export function TiposLancamento() {
   const { tipos, addTipo, updateTipo, deleteTipo } = useConfiguracao();
-  const { state } = useAcerto();
-  const departamentoCampanha = state.config.departamento;
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Omit<TipoLancamento, "id">>(VAZIO);
   const [novoForm, setNovoForm] = useState<Omit<TipoLancamento, "id">>(VAZIO);
@@ -27,21 +26,26 @@ export function TiposLancamento() {
     setEditandoId(t.id);
     setEditForm({ nome: t.nome, conta: t.conta, subconta: t.subconta, departamento: t.departamento });
   };
+
   const salvarEdicao = () => {
-    if (!editandoId || !editForm.nome.trim() || !editForm.conta.trim() || !editForm.departamento.trim()) return;
-    updateTipo(editandoId, editForm);
+    if (!editandoId || !editForm.nome.trim() || !editForm.conta.trim()) return;
+    if (!herdaDaCampanha(editForm.conta) && !editForm.departamento.trim()) return;
+    updateTipo(editandoId, {
+      ...editForm,
+      departamento: herdaDaCampanha(editForm.conta) ? "" : editForm.departamento,
+    });
     setEditandoId(null);
   };
+
   const handleAdd = () => {
-    if (!novoForm.nome.trim() || !novoForm.conta.trim() || !novoForm.departamento.trim()) return;
-    addTipo(novoForm);
+    if (!novoForm.nome.trim() || !novoForm.conta.trim()) return;
+    if (!herdaDaCampanha(novoForm.conta) && !novoForm.departamento.trim()) return;
+    addTipo({
+      ...novoForm,
+      departamento: herdaDaCampanha(novoForm.conta) ? "" : novoForm.departamento,
+    });
     setNovoForm(VAZIO);
   };
-  const autoDept = (conta: string, prev: Omit<TipoLancamento, "id">) => ({
-    ...prev,
-    conta,
-    ...(conta.startsWith("4") && departamentoCampanha ? { departamento: departamentoCampanha } : {}),
-  });
 
   const tipoAlvo = tipos.find((t) => t.id === confirmarId);
 
@@ -69,10 +73,32 @@ export function TiposLancamento() {
               {tipos.map((tipo) =>
                 editandoId === tipo.id ? (
                   <tr key={tipo.id} className="border-b border-[#2A2F45]/50 bg-[#6C63FF]/5">
-                    <td className="px-4 py-2"><input className={inputCls} value={editForm.nome} onChange={(e) => setEditForm((p) => ({ ...p, nome: e.target.value }))} /></td>
-                    <td className="px-4 py-2"><input className={inputCls} value={editForm.conta} onChange={(e) => setEditForm((p) => autoDept(e.target.value, p))} /></td>
-                    <td className="px-4 py-2"><input className={inputCls} value={editForm.subconta} onChange={(e) => setEditForm((p) => ({ ...p, subconta: e.target.value }))} /></td>
-                    <td className="px-4 py-2"><input className={inputCls} value={editForm.departamento} onChange={(e) => setEditForm((p) => ({ ...p, departamento: e.target.value }))} /></td>
+                    <td className="px-4 py-2">
+                      <input className={inputCls} value={editForm.nome} onChange={(e) => setEditForm((p) => ({ ...p, nome: e.target.value }))} />
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        className={inputCls}
+                        value={editForm.conta}
+                        onChange={(e) => setEditForm((p) => ({
+                          ...p,
+                          conta: e.target.value,
+                          departamento: herdaDaCampanha(e.target.value) ? "" : p.departamento,
+                        }))}
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <input className={inputCls} value={editForm.subconta} onChange={(e) => setEditForm((p) => ({ ...p, subconta: e.target.value }))} />
+                    </td>
+                    <td className="px-4 py-2">
+                      {herdaDaCampanha(editForm.conta) ? (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                          Herda da campanha
+                        </span>
+                      ) : (
+                        <input className={inputCls} value={editForm.departamento} onChange={(e) => setEditForm((p) => ({ ...p, departamento: e.target.value }))} />
+                      )}
+                    </td>
                     <td className="px-4 py-2">
                       <div className="flex gap-1.5">
                         <button className={cn(btnSm, "bg-[#6C63FF]/15 text-[#6C63FF] hover:bg-[#6C63FF]/25")} onClick={salvarEdicao} type="button">Salvar</button>
@@ -85,7 +111,15 @@ export function TiposLancamento() {
                     <td className={cn(tdCls, "text-white font-medium")}>{tipo.nome}</td>
                     <td className={tdCls}>{tipo.conta || <span className="text-[#2A2F45]">—</span>}</td>
                     <td className={tdCls}>{tipo.subconta || <span className="text-[#2A2F45]">—</span>}</td>
-                    <td className={tdCls}>{tipo.departamento || <span className="text-[#2A2F45]">—</span>}</td>
+                    <td className={tdCls}>
+                      {herdaDaCampanha(tipo.conta) ? (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                          Herda da campanha
+                        </span>
+                      ) : (
+                        tipo.departamento || <span className="text-[#2A2F45]">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1.5">
                         <button className={cn(btnSm, "bg-[#2A2F45] text-[#8B8FA8] hover:text-white")} onClick={() => iniciarEdicao(tipo)} type="button">Editar</button>
@@ -109,21 +143,44 @@ export function TiposLancamento() {
           </div>
           <div>
             <label className={labelCls}>Conta *</label>
-            <input className={inputCls} placeholder="Código da conta" value={novoForm.conta} onChange={(e) => setNovoForm((p) => autoDept(e.target.value, p))} />
+            <input
+              className={inputCls}
+              placeholder="Código da conta"
+              value={novoForm.conta}
+              onChange={(e) => setNovoForm((p) => ({
+                ...p,
+                conta: e.target.value,
+                departamento: herdaDaCampanha(e.target.value) ? "" : p.departamento,
+              }))}
+            />
           </div>
           <div>
             <label className={labelCls}>Subconta</label>
             <input className={inputCls} placeholder="Código da subconta (opcional)" value={novoForm.subconta} onChange={(e) => setNovoForm((p) => ({ ...p, subconta: e.target.value }))} />
           </div>
           <div>
-            <label className={labelCls}>Departamento *</label>
-            <input className={inputCls} placeholder="Nome do departamento" value={novoForm.departamento} onChange={(e) => setNovoForm((p) => ({ ...p, departamento: e.target.value }))} />
+            <label className={labelCls}>
+              Departamento {!herdaDaCampanha(novoForm.conta) && "*"}
+            </label>
+            {herdaDaCampanha(novoForm.conta) ? (
+              <div className="flex items-center h-[38px] px-3 rounded-lg bg-[#0F1117] border border-[#2A2F45]">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  Herda da campanha
+                </span>
+              </div>
+            ) : (
+              <input className={inputCls} placeholder="Nome do departamento" value={novoForm.departamento} onChange={(e) => setNovoForm((p) => ({ ...p, departamento: e.target.value }))} />
+            )}
           </div>
         </div>
         <button
           className="px-4 py-2 rounded-lg text-sm font-medium bg-[#6C63FF] text-white hover:bg-[#5A52E8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           onClick={handleAdd}
-          disabled={!novoForm.nome.trim() || !novoForm.conta.trim() || !novoForm.departamento.trim()}
+          disabled={
+            !novoForm.nome.trim() ||
+            !novoForm.conta.trim() ||
+            (!herdaDaCampanha(novoForm.conta) && !novoForm.departamento.trim())
+          }
           type="button"
         >
           + Adicionar Tipo
