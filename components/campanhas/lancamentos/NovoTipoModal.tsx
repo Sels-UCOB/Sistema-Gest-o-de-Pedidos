@@ -1,9 +1,8 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { useConfiguracao } from "@/lib/campanhas/context/ConfiguracaoContext";
-import { useAcerto } from "@/lib/campanhas/context/AcertoContext";
 import type { TipoLancamento } from "@/lib/campanhas/types/configuracao";
 
 interface Props { onSalvar: (id: string) => void; onFechar: () => void; }
@@ -12,10 +11,10 @@ const VAZIO: Omit<TipoLancamento, "id"> = { nome: "", conta: "", subconta: "", d
 const inputCls = "w-full rounded-lg bg-[#0F1117] border border-[#2A2F45] text-white text-sm px-3 py-2 focus:outline-none focus:border-[#6C63FF] transition-colors placeholder:text-[#8B8FA8]/50";
 const labelCls = "block text-xs font-medium text-[#8B8FA8] mb-1.5";
 
+const herdaDaCampanha = (conta: string) => conta.startsWith("4");
+
 export function NovoTipoModal({ onSalvar, onFechar }: Props) {
   const { tipos, addTipo } = useConfiguracao();
-  const { state } = useAcerto();
-  const departamentoCampanha = state.config.departamento;
   const [form, setForm] = useState(VAZIO);
   const [salvando, setSalvando] = useState(false);
 
@@ -24,12 +23,18 @@ export function NovoTipoModal({ onSalvar, onFechar }: Props) {
     onSalvar(tipos[tipos.length - 1].id);
   }, [tipos, salvando, onSalvar]);
 
-  const podeSubmeter = form.nome.trim() !== "" && form.conta.trim() !== "" && form.departamento.trim() !== "";
+  const podeSubmeter =
+    form.nome.trim() !== "" &&
+    form.conta.trim() !== "" &&
+    (herdaDaCampanha(form.conta) || form.departamento.trim() !== "");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: { preventDefault(): void }) => {
     e.preventDefault();
     if (!podeSubmeter) return;
-    addTipo(form);
+    addTipo({
+      ...form,
+      departamento: herdaDaCampanha(form.conta) ? "" : form.departamento,
+    });
     setSalvando(true);
   };
 
@@ -50,18 +55,34 @@ export function NovoTipoModal({ onSalvar, onFechar }: Props) {
           </div>
           <div>
             <label className={labelCls}>Conta *</label>
-            <input className={inputCls} placeholder="Código da conta" value={form.conta} onChange={(e) => {
-              const conta = e.target.value;
-              setForm((p) => ({ ...p, conta, ...(conta.startsWith("4") && departamentoCampanha ? { departamento: departamentoCampanha } : {}) }));
-            }} />
+            <input
+              className={inputCls}
+              placeholder="Código da conta"
+              value={form.conta}
+              onChange={(e) => setForm((p) => ({
+                ...p,
+                conta: e.target.value,
+                departamento: herdaDaCampanha(e.target.value) ? "" : p.departamento,
+              }))}
+            />
           </div>
           <div>
             <label className={labelCls}>Subconta</label>
             <input className={inputCls} placeholder="Código da subconta (opcional)" value={form.subconta} onChange={(e) => setForm((p) => ({ ...p, subconta: e.target.value }))} />
           </div>
           <div>
-            <label className={labelCls}>Departamento *</label>
-            <input className={inputCls} placeholder="Nome do departamento" value={form.departamento} onChange={(e) => setForm((p) => ({ ...p, departamento: e.target.value }))} />
+            <label className={labelCls}>
+              Departamento {!herdaDaCampanha(form.conta) && "*"}
+            </label>
+            {herdaDaCampanha(form.conta) ? (
+              <div className="flex items-center h-[38px] px-3 rounded-lg bg-[#0F1117] border border-[#2A2F45]">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  Herda da campanha
+                </span>
+              </div>
+            ) : (
+              <input className={inputCls} placeholder="Nome do departamento" value={form.departamento} onChange={(e) => setForm((p) => ({ ...p, departamento: e.target.value }))} />
+            )}
           </div>
 
           <div className="flex gap-3 justify-end pt-2">
