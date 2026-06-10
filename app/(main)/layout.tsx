@@ -117,7 +117,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     const cached = readProfileCache();
-    if (cached) setProfile(cached);
+    if (cached) {
+      setProfile(cached);
+      setProfileLoaded(true);
+    }
   }, []);
 
   const fetchAndSetProfile = async (userId: string): Promise<boolean> => {
@@ -133,7 +136,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 12000));
+        const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 5000));
         const data = await Promise.race([doFetch(), timeout]);
         if (data) {
           setProfile(data);
