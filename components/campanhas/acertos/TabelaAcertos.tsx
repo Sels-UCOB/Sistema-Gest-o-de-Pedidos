@@ -131,7 +131,14 @@ export function TabelaAcertos({ acertos, activeId, onEntrar, onEditar, onExcluir
                   <td className="px-4 py-3 text-[#8B8FA8]">{a.campo}</td>
                   <td className="px-4 py-3 text-[#8B8FA8]">{a.tipoCampanha}</td>
                   <td className="px-4 py-3 text-[#8B8FA8]">{fmtData(a.dataCriacao)}</td>
-                  <td className="px-4 py-3"><BadgeStatus status={a.status} /></td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <BadgeStatus status={a.status} />
+                      {a.status === "Encerrado" && a.loteAASI != null && (
+                        <span className="text-xs text-[#8B8FA8]">Lote {a.loteAASI}</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
                       {a.status === "Encerrado" ? (

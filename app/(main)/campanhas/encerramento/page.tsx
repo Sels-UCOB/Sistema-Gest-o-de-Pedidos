@@ -16,7 +16,6 @@ export default function EncerramentoPage() {
           <p className="text-sm text-[#8B8FA8] mt-1">Resumo final, exportação e fechamento da campanha.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <BotaoEncerrar />
           <BotaoGerarCSV />
           <BotoesExportarPDF />
         </div>
@@ -26,6 +25,7 @@ export default function EncerramentoPage() {
         <ResumoCampanha />
         <ResumoLideresTabela />
         <DiferencaCaixa />
+        <BotaoEncerrar />
       </div>
     </div>
   );

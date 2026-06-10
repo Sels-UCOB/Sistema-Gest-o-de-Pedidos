@@ -8,6 +8,7 @@ export interface AcertoMeta {
   dataCriacao: string;
   status: StatusAcerto;
   dataEncerramento?: string;
+  loteAASI?: number;
 }
 
 export interface CriarAcertoData {

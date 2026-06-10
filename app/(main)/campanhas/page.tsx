@@ -14,8 +14,7 @@ export default function Tela1() {
 
   const podeProsseguir =
     dadosImportados !== null &&
-    config.lideres[0].nome.trim() !== "" &&
-    config.caixa.nome.trim() !== "";
+    config.lideres[0].nome.trim() !== "";
 
   return (
     <div className="space-y-6">
@@ -74,7 +73,7 @@ export default function Tela1() {
             <p className="text-sm text-[#8B8FA8]">
               {!dadosImportados
                 ? "Importe o relatório de saldo para continuar"
-                : "Preencha ao menos o 1º Líder e o Caixa para continuar"}
+                : "Preencha ao menos o 1º Líder para continuar"}
             </p>
           )}
           <div className="ml-auto">

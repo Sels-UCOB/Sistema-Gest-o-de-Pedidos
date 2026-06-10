@@ -42,9 +42,9 @@ interface AcertosManagerContextValue {
   createAcerto: (data: CriarAcertoData) => string;
   updateAcerto: (
     id: string,
-    data: Partial<Pick<AcertoMeta, "nome" | "campo" | "tipoCampanha">>
+    data: Partial<Pick<AcertoMeta, "nome" | "campo" | "tipoCampanha" | "loteAASI">>
   ) => void;
-  closeAcerto: (id: string) => void;
+  closeAcerto: (id: string, loteAASI?: number) => void;
   deleteAcerto: (id: string) => void;
   setActiveAcerto: (id: string | null) => void;
   marcarEmAberto: (id: string) => void;
@@ -116,7 +116,7 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
   const updateAcerto = useCallback(
     (
       id: string,
-      data: Partial<Pick<AcertoMeta, "nome" | "campo" | "tipoCampanha">>
+      data: Partial<Pick<AcertoMeta, "nome" | "campo" | "tipoCampanha" | "loteAASI">>
     ) => {
       setAcertos((prev) =>
         prev.map((a) => (a.id === id ? { ...a, ...data } : a))
@@ -125,10 +125,10 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const closeAcerto = useCallback((id: string) => {
+  const closeAcerto = useCallback((id: string, loteAASI?: number) => {
     const updated = acertos.map((a) =>
       a.id === id
-        ? { ...a, status: "Encerrado" as StatusAcerto, dataEncerramento: new Date().toISOString() }
+        ? { ...a, status: "Encerrado" as StatusAcerto, dataEncerramento: new Date().toISOString(), loteAASI }
         : a
     );
     setAcertos(updated);
