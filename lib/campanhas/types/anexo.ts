@@ -9,11 +9,25 @@ export interface AcertoAnexo {
   deleted_at?: string | null;
 }
 
-export type SheetCellValue = string | number | boolean | null;
-export type SheetRow = Record<string, SheetCellValue>;
+export interface GridCell {
+  value: string;
+  rowSpan: number;
+  colSpan: number;
+  hidden: boolean;
+  bold?: boolean;
+  italic?: boolean;
+}
+
+export interface PdfCell {
+  value: string;
+  flex: number;
+  bold?: boolean;
+  italic?: boolean;
+}
 
 export interface PreviewSheet {
   sheetName: string;
-  headers: string[];
-  rows: SheetRow[];
+  numCols: number;
+  grid: GridCell[][];
+  pdfRows: PdfCell[][];
 }

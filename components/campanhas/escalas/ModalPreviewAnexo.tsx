@@ -18,11 +18,26 @@ export function ModalPreviewAnexo({ anexo, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [activeSheet, setActiveSheet] = useState(0);
   const [gerandoPdf, setGerandoPdf] = useState(false);
+  const [logoBase64, setLogoBase64] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     loadAttachmentForPreview(anexo.id)
       .then((d) => { setSheets(d); setLoading(false); })
       .catch(() => { setError("Falha ao carregar o arquivo."); setLoading(false); });
+
+    fetch("/icon.png")
+      .then((r) => r.blob())
+      .then(
+        (blob) =>
+          new Promise<string>((res, rej) => {
+            const reader = new FileReader();
+            reader.onload = () => res(reader.result as string);
+            reader.onerror = rej;
+            reader.readAsDataURL(blob);
+          })
+      )
+      .then(setLogoBase64)
+      .catch(() => {});
   }, [anexo.id]);
 
   const handleGerarPdf = useCallback(async () => {
@@ -30,7 +45,7 @@ export function ModalPreviewAnexo({ anexo, onClose }: Props) {
     setGerandoPdf(true);
     try {
       const blob = await pdf(
-        <DocumentoEscalaPDF nomeAnexo={anexo.nome} sheets={sheets} />
+        <DocumentoEscalaPDF nomeAnexo={anexo.nome} sheets={sheets} logo={logoBase64} />
       ).toBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -123,36 +138,37 @@ export function ModalPreviewAnexo({ anexo, onClose }: Props) {
 
               {/* Table */}
               {sheet && (
-                <div className="flex-1 overflow-auto rounded-xl border border-[#2A2F45] min-h-0">
-                  {sheet.rows.length === 0 ? (
+                <div className="relative flex-1 overflow-auto rounded-xl border border-[#2A2F45] min-h-0">
+                  {logoBase64 && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={logoBase64}
+                      alt="Logo"
+                      className="absolute top-2 left-2 w-9 h-9 object-contain z-10 pointer-events-none"
+                    />
+                  )}
+                  {sheet.grid.length === 0 ? (
                     <div className="flex items-center justify-center py-10 text-[#8B8FA8] text-sm">
                       Aba sem dados
                     </div>
                   ) : (
-                    <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-[#0F1117] z-10">
-                        <tr className="border-b border-[#2A2F45]">
-                          {sheet.headers.map((h) => (
-                            <th
-                              key={h}
-                              className="px-3 py-2 text-left font-semibold uppercase tracking-wider text-[#8B8FA8] whitespace-nowrap"
-                            >
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
+                    <table className="w-full text-xs border-collapse">
                       <tbody>
-                        {sheet.rows.map((row, i) => (
-                          <tr
-                            key={i}
-                            className="border-b border-[#2A2F45]/50 last:border-0 hover:bg-[#2A2F45]/20"
-                          >
-                            {sheet.headers.map((h) => (
-                              <td key={h} className="px-3 py-2 text-[#C4C8D8] whitespace-nowrap">
-                                {row[h] == null ? "" : String(row[h])}
-                              </td>
-                            ))}
+                        {sheet.grid.map((row, ri) => (
+                          <tr key={ri} className="hover:bg-[#2A2F45]/20">
+                            {row.map((cell, ci) => {
+                              if (cell.hidden) return null;
+                              return (
+                                <td
+                                  key={ci}
+                                  rowSpan={cell.rowSpan > 1 ? cell.rowSpan : undefined}
+                                  colSpan={cell.colSpan > 1 ? cell.colSpan : undefined}
+                                  className={`px-3 py-2 text-[#C4C8D8] border border-[#2A2F45]/40 align-top whitespace-pre-wrap${cell.bold ? " font-bold" : ""}${cell.italic ? " italic" : ""}`}
+                                >
+                                  {cell.value}
+                                </td>
+                              );
+                            })}
                           </tr>
                         ))}
                       </tbody>
@@ -162,7 +178,7 @@ export function ModalPreviewAnexo({ anexo, onClose }: Props) {
               )}
 
               <p className="text-xs text-[#8B8FA8] text-right shrink-0">
-                {sheet?.rows.length ?? 0} linha{sheet?.rows.length !== 1 ? "s" : ""}
+                {sheet?.grid.length ?? 0} linha{sheet?.grid.length !== 1 ? "s" : ""}
               </p>
             </>
           )}

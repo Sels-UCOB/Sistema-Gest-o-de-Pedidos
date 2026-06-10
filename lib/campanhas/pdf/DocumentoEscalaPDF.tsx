@@ -1,5 +1,4 @@
-import React from "react";
-import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, View, Text, StyleSheet, Image as PdfImage } from "@react-pdf/renderer";
 import type { PreviewSheet } from "@/lib/campanhas/types/anexo";
 
 const s = StyleSheet.create({
@@ -71,12 +70,20 @@ const s = StyleSheet.create({
   },
 });
 
+function pdfFontFamily(bold?: boolean, italic?: boolean): string {
+  if (bold && italic) return "Helvetica-BoldOblique";
+  if (bold) return "Helvetica-Bold";
+  if (italic) return "Helvetica-Oblique";
+  return "Helvetica";
+}
+
 interface Props {
   nomeAnexo: string;
   sheets: PreviewSheet[];
+  logo?: string;
 }
 
-export function DocumentoEscalaPDF({ nomeAnexo, sheets }: Props) {
+export function DocumentoEscalaPDF({ nomeAnexo, sheets, logo }: Props) {
   const dataGeracao = new Date().toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
@@ -89,42 +96,55 @@ export function DocumentoEscalaPDF({ nomeAnexo, sheets }: Props) {
     <Document>
       {sheets.map((sheet, si) => (
         <Page key={si} style={s.page} orientation="landscape" size="A4">
-          <View style={{ marginBottom: 10 }}>
-            <Text style={s.titulo}>{nomeAnexo}</Text>
-            <Text style={s.subtitulo}>
-              {sheets.length > 1 ? `Aba: ${sheet.sheetName} · ` : ""}
-              {sheet.rows.length} linha{sheet.rows.length !== 1 ? "s" : ""} · Gerado em {dataGeracao}
-            </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+            {logo && (
+              <PdfImage src={logo} style={{ width: 36, height: 36, marginRight: 8 }} />
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={s.titulo}>{nomeAnexo}</Text>
+              <Text style={s.subtitulo}>
+                {sheets.length > 1 ? `Aba: ${sheet.sheetName} · ` : ""}
+                {sheet.grid.length} linha{sheet.grid.length !== 1 ? "s" : ""} · Gerado em {dataGeracao}
+              </Text>
+            </View>
           </View>
 
-          {sheet.headers.length === 0 ? (
+          {sheet.pdfRows.length === 0 ? (
             <Text style={{ fontSize: 8, color: "#6e7781" }}>Aba sem dados.</Text>
           ) : (
             <View>
-              <View style={s.theadRow}>
-                {sheet.headers.map((h, hi) => (
-                  <View key={hi} style={s.theadCell}>
-                    <Text style={s.theadText}>{h}</Text>
+              {sheet.pdfRows.map((row, ri) => {
+                const isHeader = ri === 0;
+                const isAlt = !isHeader && ri % 2 === 0;
+                return (
+                  <View
+                    key={ri}
+                    style={[isHeader ? s.theadRow : s.tbodyRow, ...(isAlt ? [s.tbodyCellAlt] : [])]}
+                  >
+                    {row.map((cell, ci) => (
+                      <View
+                        key={ci}
+                        style={[
+                          isHeader ? s.theadCell : s.tbodyCell,
+                          { flex: cell.flex },
+                          ...(isAlt ? [s.tbodyCellAlt] : []),
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            isHeader ? s.theadText : s.tbodyText,
+                            !isHeader && (cell.bold || cell.italic)
+                              ? { fontFamily: pdfFontFamily(cell.bold, cell.italic) }
+                              : {},
+                          ]}
+                        >
+                          {cell.value}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
-              {sheet.rows.map((row, ri) => (
-                <View
-                  key={ri}
-                  style={[s.tbodyRow, ...(ri % 2 !== 0 ? [s.tbodyCellAlt] : [])]}
-                >
-                  {sheet.headers.map((h, hi) => (
-                    <View
-                      key={hi}
-                      style={[s.tbodyCell, ...(ri % 2 !== 0 ? [s.tbodyCellAlt] : [])]}
-                    >
-                      <Text style={s.tbodyText}>
-                        {row[h] == null ? "" : String(row[h])}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ))}
+                );
+              })}
             </View>
           )}
 
