@@ -1,14 +1,17 @@
-﻿"use client";
+"use client";
 
 import {
   createContext,
   useContext,
   useState,
   useCallback,
+  useEffect,
   type ReactNode,
 } from "react";
 import type { TipoLancamento, Campo, LiderConfig } from "@/lib/campanhas/types/configuracao";
 import { TIPOS_INICIAIS, CAMPOS_INICIAIS } from "@/lib/campanhas/config/configuracoes";
+
+const STORAGE_KEY = "campanhas_config_global_v1";
 
 interface ConfiguracaoContextValue {
   tipos: TipoLancamento[];
@@ -37,6 +40,29 @@ export function ConfiguracaoProvider({ children }: { children: ReactNode }) {
   const [tipos, setTipos] = useState<TipoLancamento[]>(TIPOS_INICIAIS);
   const [campos, setCampos] = useState<Campo[]>(CAMPOS_INICIAIS);
   const [lideres, setLideres] = useState<LiderConfig[]>([]);
+  const [carregado, setCarregado] = useState(false);
+
+  // Carrega do localStorage no mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (Array.isArray(data.tipos) && data.tipos.length > 0) setTipos(data.tipos);
+        if (Array.isArray(data.campos) && data.campos.length > 0) setCampos(data.campos);
+        if (Array.isArray(data.lideres)) setLideres(data.lideres);
+      }
+    } catch {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+    setCarregado(true);
+  }, []);
+
+  // Auto-salva sempre que os dados mudam (somente após o carregamento inicial)
+  useEffect(() => {
+    if (!carregado) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ tipos, campos, lideres }));
+  }, [tipos, campos, lideres, carregado]);
 
   const addTipo = useCallback((tipo: Omit<TipoLancamento, "id">) => {
     setTipos((p) => [...p, { ...tipo, id: genId() }]);

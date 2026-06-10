@@ -276,8 +276,8 @@ export function gerarCSVContabil(p: ParamsCSV): string {
       cartaBolsaReceptor: "",
     });
 
-    // Inclui salarioCaixa no saldo total (não está no calcularResumoLider)
-    const saldoCaixa = arred(resumoCaixa.saldoFinal - (caixa.salarioCaixa ?? 0));
+    // salarioCaixa é somado: o campo paga ao caixa (não está no calcularResumoLider)
+    const saldoCaixa = arred(resumoCaixa.saldoFinal + (caixa.salarioCaixa ?? 0));
 
     if (saldoCaixa !== 0) {
       const hist = `Salário Caixa ${caixa.nome}`;

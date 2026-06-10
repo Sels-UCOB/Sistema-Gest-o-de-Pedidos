@@ -81,11 +81,16 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
   const lastActiveIdRef = useRef<string | null | undefined>(undefined);
   // Ref para detectar troca de relatório dentro do mesmo acerto
   const dadosRef = useRef(state.dadosImportados);
+  // Sinaliza que o Effect 1 carregou débitos do localStorage com sucesso,
+  // para que o Effect 2 não interprete o carregamento assíncrono do AcertoContext
+  // como uma nova importação de planilha (o que apagaria os débitos salvos).
+  const loadedFromStorageRef = useRef(false);
 
   // Carrega/reseta quando o acerto ativo muda
   useEffect(() => {
     if (lastActiveIdRef.current === activeId) return;
     lastActiveIdRef.current = activeId;
+    loadedFromStorageRef.current = false;
     dadosRef.current = state.dadosImportados; // sincroniza ref p/ evitar detecção falsa
     setPronto(false);
 
@@ -98,6 +103,7 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
           if (Array.isArray(data.gastosLideres))
             setGastosLideresState(data.gastosLideres);
           if (data.gastosCaixa) setGastosCaixaState(data.gastosCaixa);
+          loadedFromStorageRef.current = true;
           setPronto(true);
           return;
         } catch {
@@ -127,6 +133,15 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
     if (state.dadosImportados === dadosRef.current) return;
 
     dadosRef.current = state.dadosImportados;
+
+    // Se o Effect 1 acabou de carregar do localStorage, esta mudança de
+    // dadosImportados é apenas o AcertoContext terminando de carregar de forma
+    // assíncrona — não é uma reimportação pelo usuário, então não reseta.
+    if (loadedFromStorageRef.current) {
+      loadedFromStorageRef.current = false;
+      return;
+    }
+
     if (activeId) localStorage.removeItem(`acerto_${activeId}_debitos`);
 
     setDevedores(
