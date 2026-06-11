@@ -20,7 +20,7 @@ export default function EscalasPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Escalas</h1>
+        <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Anexos</h1>
         <p className="text-sm text-[#8B8FA8] mt-1">
           Arquivos de escala do acerto{" "}
           <span className="text-white font-medium">{activeAcerto.nome}</span>.
