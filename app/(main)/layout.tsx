@@ -231,6 +231,17 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }, [router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!authChecked || profileLoadedRef.current) return;
+    const t = setTimeout(() => {
+      if (!profileLoadedRef.current) {
+        profileLoadedRef.current = true;
+        setProfileLoaded(true);
+      }
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [authChecked]);
+
+  useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
