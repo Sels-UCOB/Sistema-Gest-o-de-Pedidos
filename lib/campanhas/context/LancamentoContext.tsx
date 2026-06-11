@@ -69,14 +69,16 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
   const [inicializado, setInicializado] = useState(false);
   const lastActiveIdRef = useRef<string | null | undefined>(undefined);
   const activeIdForSave = useRef(activeId);
-  // Ref para detectar re-importação dentro do mesmo acerto
-  const dadosRef = useRef(state.dadosImportados);
+  const dadosRef = useRef<typeof state.dadosImportados | null>(null);
+  const saveGenRef = useRef(0);
 
   // Carrega do Supabase quando o acerto ativo muda
   useEffect(() => {
     if (lastActiveIdRef.current === activeId) return;
     lastActiveIdRef.current = activeId;
     activeIdForSave.current = activeId;
+    dadosRef.current = null; // sentinel: baseline ainda não estabelecido para este acerto
+    saveGenRef.current = 0;  // invalida saves pendentes do acerto anterior
 
     if (!activeId) {
       setInicializado(false);
@@ -126,10 +128,19 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
     setLancamentos(linhas);
   }, [inicializado, state.dadosImportados, tipos]);
 
-  // Detecta re-importação dentro do mesmo acerto e reseta
+  // Detecta re-importação dentro do mesmo acerto e reseta.
+  // Usa sentinel null: enquanto dadosRef.current === null apenas estabelece o baseline
+  // (carregamento inicial do acerto), sem resetar lançamentos.
   useEffect(() => {
     if (!inicializado) return;
     if (!state.dadosImportados) return;
+
+    if (dadosRef.current === null) {
+      // Primeira vez que dados chegam para este acerto — apenas fixa o baseline
+      dadosRef.current = state.dadosImportados;
+      return;
+    }
+
     if (state.dadosImportados === dadosRef.current) return;
     dadosRef.current = state.dadosImportados;
 
@@ -148,20 +159,24 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
     });
     setLancamentos(linhas);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.dadosImportados]);
+  }, [state.dadosImportados, inicializado]);
 
-  // Persiste no Supabase sempre que a lista muda (após inicialização)
+  // Persiste no Supabase sempre que a lista muda (após inicialização).
+  // Usa gerador de versão para cancelar saves obsoletos: se o usuário edita
+  // rapidamente, apenas o último delete+insert completa o insert.
   useEffect(() => {
     const id = activeIdForSave.current;
     if (!id || !inicializado) return;
 
+    const gen = ++saveGenRef.current;
     const rows = lancamentosToRows(id, lancamentos);
-    // Substitui todos os lançamentos do acerto (delete + insert)
+
     supabase
       .from("acerto_lancamentos")
       .delete()
       .eq("acerto_id", id)
       .then(() => {
+        if (saveGenRef.current !== gen) return; // save mais recente já substituiu este
         if (rows.length > 0) {
           supabase.from("acerto_lancamentos").insert(rows).then(() => {});
         }

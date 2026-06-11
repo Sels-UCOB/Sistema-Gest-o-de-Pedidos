@@ -58,6 +58,10 @@ export function AcertoProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Zera dadosImportados imediatamente para que LancamentoContext não confunda
+    // o carregamento do novo acerto com uma re-importação manual
+    setState((s) => ({ ...s, dadosImportados: null }));
+
     supabase
       .from("acerto_state")
       .select("dados_importados, config")
