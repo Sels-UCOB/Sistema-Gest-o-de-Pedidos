@@ -139,21 +139,34 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<chave anon do painel do Supabase>
 
 ```
 app/
-  page.tsx                  → Tela de login
+  page.tsx                        → Tela de login
   (main)/
-    layout.tsx              → Layout compartilhado (sidebar + nav mobile)
-    orders/page.tsx         → Gestão de pedidos e separação
-    shipments/page.tsx      → Criação e listagem de envios
-    reports/page.tsx        → Relatórios e impressão
-    products/page.tsx       → Catálogo e controle de estoque
-    admin/page.tsx          → Gerenciamento de usuários (só admin)
+    layout.tsx                    → Layout compartilhado (header + nav)
+    hub/page.tsx                  → Tela inicial com módulos
+    orders/page.tsx               → Gestão de pedidos e separação
+    shipments/page.tsx            → Criação e listagem de envios
+    reports/page.tsx              → Relatórios e impressão
+    products/page.tsx             → Catálogo e controle de estoque
+    admin/page.tsx                → Gerenciamento de usuários (só admin)
+    fiorino/page.tsx              → Controle do veículo Fiorino
+    estoque/page.tsx              → Controle de estoque
+    campanhas/
+      page.tsx                    → Importação de campanhas
+      acertos/page.tsx            → Acertos de campanha
+      lancamentos/page.tsx        → Lançamentos
+      lancamentos-lideres/        → Lançamentos de líderes
+      escalas/page.tsx            → Escalas
+      bolsas/page.tsx             → Bolsas
+      encerramento/page.tsx       → Encerramento de campanha
+      configuracoes/page.tsx      → Configurações de campanha
 
 lib/
-  supabase.ts               → Cliente Supabase
-  supabase-db.ts            → Funções de acesso ao banco
-  db.ts                     → Tipos TypeScript das entidades
-  campos.ts                 → Mapa de campanhas e depósitos
-  user-context.ts           → Contexto de sessão do usuário
+  supabase.ts                     → Cliente Supabase
+  supabase-db.ts                  → Funções de acesso ao banco
+  db.ts                           → Tipos TypeScript das entidades
+  campos.ts                       → Mapa de campanhas e depósitos
+  user-context.ts                 → Contexto de sessão do usuário
+  campanhas/                      → Lógica, tipos e DB do módulo campanhas
 ```
 
 ---
@@ -177,7 +190,7 @@ lib/
 ## 8. Problemas Comuns
 
 **Login não funciona após muito tempo parado**
-→ A sessão expira. Basta fazer login novamente. O sistema detecta inatividade de 5+ minutos e verifica a sessão automaticamente ao retornar.
+→ A sessão expira. Basta fazer login novamente. O sistema detecta inatividade de 2+ minutos e verifica a sessão automaticamente ao retornar.
 
 **Foto não salva**
 → Verifique conexão com internet. O app exibe alerta se o banco retornar erro.
@@ -194,13 +207,14 @@ lib/
 
 | Tecnologia | Versão | Finalidade |
 |-----------|--------|------------|
-| Next.js | 15 | Framework React com export estático |
+| Next.js | 16 | Framework React com export estático |
 | React | 19 | Interface |
 | Supabase | 2.x | Banco de dados (PostgreSQL) + Auth |
 | Tailwind CSS | 4 | Estilização |
 | shadcn/ui | — | Componentes de interface |
 | date-fns | 4 | Formatação de datas |
-| xlsx | 0.18 | Importação de planilhas XLS no catálogo |
+| @e965/xlsx | — | Importação de planilhas XLS |
+| @react-pdf/renderer | — | Geração de PDF no client |
 
 ---
 
