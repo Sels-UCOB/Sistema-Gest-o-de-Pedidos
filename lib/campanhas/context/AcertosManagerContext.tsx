@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   createContext,
@@ -9,71 +9,75 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
+import { supabase } from "@/lib/supabase";
 import type { AcertoMeta, CriarAcertoData, FiltrosAcerto, StatusAcerto } from "@/lib/campanhas/types/acertoManager";
-import type { AcertoState } from "@/lib/campanhas/types/acerto";
-import { CONFIG_INICIAL } from "@/lib/campanhas/types/acerto";
 
-const META_KEY = "acertos_meta_v1";
 const ACTIVE_KEY = "acertos_active_v1";
-
-function loadMeta(): AcertoMeta[] {
-  try {
-    const s = localStorage.getItem(META_KEY);
-    return s ? JSON.parse(s) : [];
-  } catch {
-    return [];
-  }
-}
-
-function loadActiveId(list: AcertoMeta[]): string | null {
-  const id = localStorage.getItem(ACTIVE_KEY);
-  if (!id) return null;
-  return list.some((a) => a.id === id) ? id : null;
-}
 
 function genId(): string {
   return `ac_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function rowToMeta(row: Record<string, unknown>): AcertoMeta {
+  return {
+    id: row.id as string,
+    nome: row.nome as string,
+    campo: row.campo as string,
+    tipoCampanha: row.tipo_campanha as string,
+    dataCriacao: row.data_criacao as string,
+    status: row.status as StatusAcerto,
+    dataEncerramento: row.data_encerramento as string | undefined,
+    loteAASI: row.lote_aasi as number | undefined,
+  };
 }
 
 interface AcertosManagerContextValue {
   acertos: AcertoMeta[];
   activeId: string | null;
   activeAcerto: AcertoMeta | null;
-  createAcerto: (data: CriarAcertoData) => string;
-  updateAcerto: (
-    id: string,
-    data: Partial<Pick<AcertoMeta, "nome" | "campo" | "tipoCampanha" | "loteAASI">>
-  ) => void;
-  closeAcerto: (id: string, loteAASI?: number) => void;
-  deleteAcerto: (id: string) => void;
+  loading: boolean;
+  createAcerto: (data: CriarAcertoData) => Promise<string>;
+  updateAcerto: (id: string, data: Partial<Pick<AcertoMeta, "nome" | "campo" | "tipoCampanha" | "loteAASI">>) => Promise<void>;
+  closeAcerto: (id: string, loteAASI?: number) => Promise<void>;
+  deleteAcerto: (id: string) => Promise<void>;
   setActiveAcerto: (id: string | null) => void;
-  marcarEmAberto: (id: string) => void;
+  marcarEmAberto: (id: string) => Promise<void>;
   getFilteredAcertos: (filters: FiltrosAcerto) => AcertoMeta[];
 }
 
 const AcertosManagerContext = createContext<AcertosManagerContextValue | null>(null);
 
 export function AcertosManagerProvider({ children }: { children: ReactNode }) {
-  // Inicializa vazio — sem lazy initializer que leria localStorage durante SSR/hidratação
   const [acertos, setAcertos] = useState<AcertoMeta[]>([]);
   const [activeId, setActiveIdState] = useState<string | null>(null);
-  // Impede o efeito de persistência de sobrescrever dados antes da carga inicial
-  const [carregado, setCarregado] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Carrega do localStorage apenas no cliente, após a montagem
+  // Carrega lista do Supabase na montagem
   useEffect(() => {
-    const list = loadMeta();
-    const id = loadActiveId(list);
-    setAcertos(list);
-    setActiveIdState(id);
-    setCarregado(true);
+    let cancelled = false;
+
+    async function load() {
+      const { data, error } = await supabase
+        .from("acertos")
+        .select("*")
+        .order("data_criacao", { ascending: true });
+
+      if (cancelled) return;
+      if (!error && data) {
+        setAcertos(data.map(rowToMeta));
+      }
+
+      // activeId vem do localStorage (preferência de UI, não dado)
+      const saved = localStorage.getItem(ACTIVE_KEY);
+      if (saved && data?.some((a) => a.id === saved)) {
+        setActiveIdState(saved);
+      }
+      setLoading(false);
+    }
+
+    load();
+    return () => { cancelled = true; };
   }, []);
-
-  // Persiste a lista sempre que mudar, mas só após o carregamento inicial
-  useEffect(() => {
-    if (!carregado) return;
-    localStorage.setItem(META_KEY, JSON.stringify(acertos));
-  }, [acertos, carregado]);
 
   const setActiveAcerto = useCallback((id: string | null) => {
     setActiveIdState(id);
@@ -84,93 +88,104 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const createAcerto = useCallback(
-    (data: CriarAcertoData): string => {
-      const id = genId();
-      const meta: AcertoMeta = {
-        id,
-        nome: data.nome.trim(),
-        campo: data.campo,
-        tipoCampanha: data.tipoCampanha,
-        dataCriacao: new Date().toISOString(),
-        status: "Criado",
-      };
+  const createAcerto = useCallback(async (data: CriarAcertoData): Promise<string> => {
+    const id = genId();
+    const now = new Date().toISOString();
 
-      const initialState: AcertoState = {
-        dadosImportados: null,
-        config: {
-          ...CONFIG_INICIAL,
-          campo: data.campo as AcertoState["config"]["campo"],
-          tipoCampanha: data.tipoCampanha as AcertoState["config"]["tipoCampanha"],
-        },
-      };
-      localStorage.setItem(`acerto_${id}_state`, JSON.stringify(initialState));
-
-      setAcertos((prev) => [...prev, meta]);
-      setActiveAcerto(id);
-      return id;
-    },
-    [setActiveAcerto]
-  );
-
-  const updateAcerto = useCallback(
-    (
-      id: string,
-      data: Partial<Pick<AcertoMeta, "nome" | "campo" | "tipoCampanha" | "loteAASI">>
-    ) => {
-      setAcertos((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, ...data } : a))
-      );
-    },
-    []
-  );
-
-  const closeAcerto = useCallback((id: string, loteAASI?: number) => {
-    const updated = acertos.map((a) =>
-      a.id === id
-        ? { ...a, status: "Encerrado" as StatusAcerto, dataEncerramento: new Date().toISOString(), loteAASI }
-        : a
-    );
-    setAcertos(updated);
-    localStorage.setItem(META_KEY, JSON.stringify(updated));
-  }, [acertos]);
-
-  const deleteAcerto = useCallback(
-    (id: string) => {
-      localStorage.removeItem(`acerto_${id}_state`);
-      localStorage.removeItem(`acerto_${id}_lancamentos`);
-      localStorage.removeItem(`acerto_${id}_lider`);
-      localStorage.removeItem(`acerto_${id}_debitos`);
-
-      if (activeId === id) setActiveAcerto(null);
-      setAcertos((prev) => prev.filter((a) => a.id !== id));
-    },
-    [activeId, setActiveAcerto]
-  );
-
-  const marcarEmAberto = useCallback((id: string) => {
-    setAcertos((prev) => {
-      const target = prev.find((a) => a.id === id);
-      if (!target || target.status !== "Criado") return prev;
-      return prev.map((a) =>
-        a.id === id ? { ...a, status: "Em Aberto" as StatusAcerto } : a
-      );
+    const { error } = await supabase.from("acertos").insert({
+      id,
+      nome: data.nome.trim(),
+      campo: data.campo,
+      tipo_campanha: data.tipoCampanha,
+      status: "Criado",
+      data_criacao: now,
     });
+
+    if (error) throw error;
+
+    const meta: AcertoMeta = {
+      id,
+      nome: data.nome.trim(),
+      campo: data.campo,
+      tipoCampanha: data.tipoCampanha,
+      dataCriacao: now,
+      status: "Criado",
+    };
+
+    setAcertos((prev) => [...prev, meta]);
+    setActiveAcerto(id);
+    return id;
+  }, [setActiveAcerto]);
+
+  const updateAcerto = useCallback(async (
+    id: string,
+    data: Partial<Pick<AcertoMeta, "nome" | "campo" | "tipoCampanha" | "loteAASI">>
+  ) => {
+    const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (data.nome !== undefined) payload.nome = data.nome.trim();
+    if (data.campo !== undefined) payload.campo = data.campo;
+    if (data.tipoCampanha !== undefined) payload.tipo_campanha = data.tipoCampanha;
+    if (data.loteAASI !== undefined) payload.lote_aasi = data.loteAASI;
+
+    const { error } = await supabase.from("acertos").update(payload).eq("id", id);
+    if (error) throw error;
+
+    setAcertos((prev) => prev.map((a) => (a.id === id ? { ...a, ...data } : a)));
   }, []);
+
+  const closeAcerto = useCallback(async (id: string, loteAASI?: number) => {
+    const now = new Date().toISOString();
+    const payload: Record<string, unknown> = {
+      status: "Encerrado",
+      data_encerramento: now,
+      updated_at: now,
+    };
+    if (loteAASI !== undefined) payload.lote_aasi = loteAASI;
+
+    const { error } = await supabase.from("acertos").update(payload).eq("id", id);
+    if (error) throw error;
+
+    setAcertos((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? { ...a, status: "Encerrado", dataEncerramento: now, loteAASI }
+          : a
+      )
+    );
+  }, []);
+
+  const deleteAcerto = useCallback(async (id: string) => {
+    // ON DELETE CASCADE limpa acerto_state, lancamentos, lider, debitos
+    const { error } = await supabase.from("acertos").delete().eq("id", id);
+    if (error) throw error;
+
+    if (activeId === id) setActiveAcerto(null);
+    setAcertos((prev) => prev.filter((a) => a.id !== id));
+  }, [activeId, setActiveAcerto]);
+
+  const marcarEmAberto = useCallback(async (id: string) => {
+    const acerto = acertos.find((a) => a.id === id);
+    if (!acerto || acerto.status !== "Criado") return;
+
+    const { error } = await supabase
+      .from("acertos")
+      .update({ status: "Em Aberto", updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+
+    setAcertos((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, status: "Em Aberto" } : a))
+    );
+  }, [acertos]);
 
   const getFilteredAcertos = useCallback(
     (filters: FiltrosAcerto): AcertoMeta[] => {
       return acertos.filter((a) => {
         if (filters.status !== "todos" && a.status !== filters.status) return false;
         if (filters.campo !== "todos" && a.campo !== filters.campo) return false;
-        if (
-          filters.tipoCampanha !== "todos" &&
-          a.tipoCampanha !== filters.tipoCampanha
-        )
-          return false;
+        if (filters.tipoCampanha !== "todos" && a.tipoCampanha !== filters.tipoCampanha) return false;
         if (filters.dataInicio && a.dataCriacao < filters.dataInicio) return false;
-        if (filters.dataFim && a.dataCriacao > filters.dataFim + "T23:59:59")
-          return false;
+        if (filters.dataFim && a.dataCriacao > filters.dataFim + "T23:59:59") return false;
         return true;
       });
     },
@@ -188,6 +203,7 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
         acertos,
         activeId,
         activeAcerto,
+        loading,
         createAcerto,
         updateAcerto,
         closeAcerto,
@@ -205,13 +221,10 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
 export function useAcertosManager() {
   const ctx = useContext(AcertosManagerContext);
   if (!ctx)
-    throw new Error(
-      "useAcertosManager deve ser usado dentro de AcertosManagerProvider"
-    );
+    throw new Error("useAcertosManager deve ser usado dentro de AcertosManagerProvider");
   return ctx;
 }
 
-/** Versão segura — retorna null fora do provider (usado dentro de child contexts) */
 export function useAcertosManagerOptional() {
   return useContext(AcertosManagerContext);
 }

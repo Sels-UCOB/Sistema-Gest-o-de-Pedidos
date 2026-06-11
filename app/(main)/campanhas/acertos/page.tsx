@@ -39,15 +39,15 @@ export default function PainelAcertosPage() {
     });
   }, [acertos, filtros]);
 
-  const handleCriar = (data: CriarAcertoData) => {
-    createAcerto(data);
+  const handleCriar = async (data: CriarAcertoData) => {
+    await createAcerto(data);
     setModalAberto(false);
     router.push("/campanhas");
   };
 
-  const handleEditar = (data: CriarAcertoData) => {
+  const handleEditar = async (data: CriarAcertoData) => {
     if (!acertoParaEditar) return;
-    updateAcerto(acertoParaEditar.id, data);
+    await updateAcerto(acertoParaEditar.id, data);
     setAcertoParaEditar(null);
     setModalAberto(false);
   };
