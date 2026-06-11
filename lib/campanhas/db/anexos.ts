@@ -104,7 +104,10 @@ export async function uploadAnexo(acertoId: string, file: File): Promise<AcertoA
     .from(BUCKET)
     .upload(path, file, {
       contentType:
-        file.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        file.type ||
+        (file.name.match(/\.pdf$/i)
+          ? "application/pdf"
+          : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
       upsert: false,
     });
   if (storageError) throw storageError;
