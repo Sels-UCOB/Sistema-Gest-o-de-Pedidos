@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import React, { useState, useCallback } from "react";
+import { Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLancamento } from "@/lib/campanhas/context/LancamentoContext";
 import { useConfiguracao } from "@/lib/campanhas/context/ConfiguracaoContext";
@@ -10,11 +11,26 @@ import { NovoTipoModal } from "./NovoTipoModal";
 
 const inputCls = "w-full rounded-md bg-[#0F1117] border border-[#2A2F45] text-white text-sm px-2 py-1.5 focus:outline-none focus:border-[#6C63FF] transition-colors";
 
+type SaveState = "idle" | "salvando" | "ok" | "erro";
+
 export function TabelaLancamentos() {
-  const { lancamentos, encerrado, addLancamento, updateLancamento, removeLancamento } = useLancamento();
+  const { lancamentos, encerrado, addLancamento, updateLancamento, removeLancamento, salvar } = useLancamento();
   const { tipos } = useConfiguracao();
   const [modalRowId, setModalRowId] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
   const saldos = calcularSaldos(lancamentos);
+
+  const handleSalvar = useCallback(async () => {
+    setSaveState("salvando");
+    try {
+      await salvar();
+      setSaveState("ok");
+      setTimeout(() => setSaveState("idle"), 1500);
+    } catch {
+      setSaveState("erro");
+      setTimeout(() => setSaveState("idle"), 2500);
+    }
+  }, [salvar]);
 
   const handleValor = useCallback((id: string, raw: string) => {
     const num = raw === "" ? null : parseFloat(raw);
@@ -134,12 +150,34 @@ export function TabelaLancamentos() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        {!encerrado && (
-          <button type="button" onClick={addLancamento} className="px-4 py-2 rounded-xl text-sm font-medium bg-[#2A2F45] text-[#8B8FA8] hover:text-white transition-colors">
-            + Adicionar Linha
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {!encerrado && (
+            <button type="button" onClick={addLancamento} className="px-4 py-2 rounded-xl text-sm font-medium bg-[#2A2F45] text-[#8B8FA8] hover:text-white transition-colors">
+              + Adicionar Linha
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleSalvar}
+            disabled={saveState === "salvando" || encerrado}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50",
+              saveState === "ok"
+                ? "bg-green-500/20 text-green-400"
+                : saveState === "erro"
+                ? "bg-red-500/20 text-red-400"
+                : "bg-[#6C63FF]/20 text-[#6C63FF] hover:bg-[#6C63FF]/30"
+            )}
+          >
+            {saveState === "salvando" ? (
+              <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            {saveState === "salvando" ? "Salvando…" : saveState === "ok" ? "Salvo!" : saveState === "erro" ? "Erro" : "Salvar"}
           </button>
-        )}
+        </div>
         <span className={cn("text-sm font-medium", saldoFinal < 0 ? "text-red-400" : "text-white")}>
           Saldo final: <strong>{formatarBRL(saldoFinal)}</strong>
         </span>
