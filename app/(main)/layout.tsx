@@ -102,6 +102,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [theme, setTheme] = useState<"dark" | "dim">("dark");
   const menuRef = useRef<HTMLDivElement>(null);
   const lastHiddenRef = useRef(0);
+  const loggingOutRef = useRef(false);
+  const profileLoadedRef = useRef(false);
 
   useEffect(() => {
     const saved = (localStorage.getItem("theme") as "dark" | "dim") ?? "dark";
@@ -121,6 +123,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     const cached = readProfileCache();
     if (cached) {
       setProfile(cached);
+      profileLoadedRef.current = true;
       setProfileLoaded(true);
     }
   }, []);
@@ -132,22 +135,27 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         .select("full_name, role, campo")
         .eq("id", userId)
         .single();
-      if (error) console.warn("[profile] query error:", error.message, error.code);
-      return data as Profile | null;
+      if (error) throw error;
+      return data as Profile;
     };
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 5000));
+        const timeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), 3000)
+        );
         const data = await Promise.race([doFetch(), timeout]);
-        if (data) {
-          setProfile(data);
-          writeProfileCache(data);
-          return true;
+        setProfile(data);
+        writeProfileCache(data);
+        return true;
+      } catch (e: unknown) {
+        const code = (e as { code?: string })?.code;
+        // Erros definitivos: sem linha no banco ou sem permissão — não adianta retry
+        if (code === "PGRST116" || code === "42501") {
+          console.warn("[profile] erro definitivo, abortando retry:", code);
+          break;
         }
-        console.warn(`[profile] tentativa ${attempt + 1} retornou null`);
-      } catch (e) {
-        console.warn(`[profile] tentativa ${attempt + 1} exception:`, e);
+        console.warn(`[profile] tentativa ${attempt + 1} falhou:`, e);
       }
       if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
     }
@@ -162,7 +170,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       if (cancelled) return;
 
       if (!session) {
-        router.replace("/");
+        if (!loggingOutRef.current) router.replace("/");
         return;
       }
 
@@ -171,9 +179,19 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
       if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
         await fetchAndSetProfile(session.user.id);
-        if (!cancelled) setProfileLoaded(true);
+        if (!cancelled) {
+          profileLoadedRef.current = true;
+          setProfileLoaded(true);
+        }
       } else if (event === "TOKEN_REFRESHED") {
-        setRefreshTick(t => t + 1);
+        if (!profileLoadedRef.current) {
+          await fetchAndSetProfile(session.user.id);
+          if (!cancelled) {
+            profileLoadedRef.current = true;
+            setProfileLoaded(true);
+          }
+        }
+        if (!cancelled) setRefreshTick(t => t + 1);
       }
     });
 
@@ -184,24 +202,29 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }, [router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    let cancelled = false;
+
     const onVisibility = async () => {
       if (document.visibilityState === "hidden") {
         lastHiddenRef.current = Date.now();
       } else if (Date.now() - lastHiddenRef.current > 2 * 60 * 1000) {
         const { data: { session } } = await supabase.auth.getSession();
+        if (cancelled) return;
         if (!session) { router.replace("/"); return; }
         await fetchAndSetProfile(session.user.id);
-        setRefreshTick(t => t + 1);
+        if (!cancelled) setRefreshTick(t => t + 1);
       }
     };
     const onOnline = async () => {
       const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
       if (session) await fetchAndSetProfile(session.user.id);
-      setRefreshTick(t => t + 1);
+      if (!cancelled) setRefreshTick(t => t + 1);
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("online", onOnline);
     return () => {
+      cancelled = true;
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("online", onOnline);
     };
@@ -217,10 +240,11 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
+    loggingOutRef.current = true;
     clearProfileCache();
-    await supabase.auth.signOut();
-    router.replace("/");
+    supabase.auth.signOut();
+    window.location.replace("/");
   };
 
   const isAdmin = profile?.role === "admin";
@@ -235,7 +259,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   ) ?? null;
   const tabs = currentSection?.tabs({ isAdmin, hasFiorino }) ?? [];
 
-  if (!authChecked) {
+  if (!authChecked || !profileLoaded) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="w-6 h-6 border-2 border-[#6C63FF] border-t-transparent rounded-full animate-spin" />

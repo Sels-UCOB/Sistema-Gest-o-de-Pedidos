@@ -35,8 +35,8 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-[#0F1117] flex flex-col items-center justify-center relative overflow-hidden px-4">
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-[#6C63FF]/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-1/4 w-[400px] h-[400px] bg-[#6C63FF]/8 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-175 h-175 bg-[#6C63FF]/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 left-1/4 w-100 h-100 bg-[#6C63FF]/8 rounded-full blur-3xl pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-md">
         {/* Logo */}
