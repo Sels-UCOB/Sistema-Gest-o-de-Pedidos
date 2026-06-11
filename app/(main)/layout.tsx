@@ -78,6 +78,7 @@ const SECTIONS: Section[] = [
       { label: "Lançamentos", href: "/campanhas/lancamentos" },
       { label: "Líderes", href: "/campanhas/lancamentos-lideres" },
       { label: "Escalas", href: "/campanhas/escalas" },
+      { label: "Bolsas", href: "/campanhas/bolsas" },
       { label: "Encerramento", href: "/campanhas/encerramento" },
       { label: "Configurações", href: "/campanhas/configuracoes" },
     ],

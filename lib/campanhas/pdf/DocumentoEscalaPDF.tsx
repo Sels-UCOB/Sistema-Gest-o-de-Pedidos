@@ -96,23 +96,18 @@ export function DocumentoEscalaPDF({ nomeAnexo, sheets, logo }: Props) {
     <Document>
       {sheets.map((sheet, si) => (
         <Page key={si} style={s.page} orientation="landscape" size="A4">
-          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
-            {logo && (
-              <PdfImage src={logo} style={{ width: 36, height: 36, marginRight: 8 }} />
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={s.titulo}>{nomeAnexo}</Text>
-              <Text style={s.subtitulo}>
-                {sheets.length > 1 ? `Aba: ${sheet.sheetName} · ` : ""}
-                {sheet.grid.length} linha{sheet.grid.length !== 1 ? "s" : ""} · Gerado em {dataGeracao}
-              </Text>
-            </View>
+          <View style={{ marginBottom: 10 }}>
+            <Text style={s.titulo}>{nomeAnexo}</Text>
+            <Text style={s.subtitulo}>
+              {sheets.length > 1 ? `Aba: ${sheet.sheetName} · ` : ""}
+              {sheet.grid.length} linha{sheet.grid.length !== 1 ? "s" : ""} · Gerado em {dataGeracao}
+            </Text>
           </View>
 
           {sheet.pdfRows.length === 0 ? (
             <Text style={{ fontSize: 8, color: "#6e7781" }}>Aba sem dados.</Text>
           ) : (
-            <View>
+            <View style={{ position: "relative" }}>
               {sheet.pdfRows.map((row, ri) => {
                 const isHeader = ri === 0;
                 const isAlt = !isHeader && ri % 2 === 0;
@@ -145,6 +140,12 @@ export function DocumentoEscalaPDF({ nomeAnexo, sheets, logo }: Props) {
                   </View>
                 );
               })}
+              {logo && (
+                <PdfImage
+                  src={logo}
+                  style={{ position: "absolute", top: 16, left: 3, width: 52, height: 52 }}
+                />
+              )}
             </View>
           )}
 
