@@ -21,6 +21,7 @@ interface LancamentoContextValue {
   addLancamento: () => void;
   updateLancamento: (id: string, parcial: Partial<Omit<Lancamento, "id">>) => void;
   removeLancamento: (id: string) => void;
+  salvar: () => Promise<void>;
 }
 
 const LancamentoContext = createContext<LancamentoContextValue | null>(null);
@@ -142,22 +143,43 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
     }
 
     if (state.dadosImportados === dadosRef.current) return;
+
+    // Captura nomes do import anterior antes de atualizar o ref
+    const previousImport = dadosRef.current;
     dadosRef.current = state.dadosImportados;
 
-    const tipoLucro = tipos.find((t) => t.nome === "Lucro");
-    const linhas: Lancamento[] = [linhaVazia()];
-    state.dadosImportados.nomes.forEach((nome, idx) => {
-      if (state.dadosImportados!.saldos[idx] > 0) {
-        linhas.push({
-          id: genId(),
-          tipoLancamentoId: tipoLucro?.id ?? "",
-          historico: nome,
-          valor: state.dadosImportados!.saldos[idx],
-          saldoManual: null,
-        });
-      }
+    const tipoLucroId = tipos.find((t) => t.nome === "Lucro")?.id ?? "";
+    const dados = state.dadosImportados;
+
+    // Nomes de colportores que vieram do import anterior (essas linhas serão substituídas)
+    const nomesDoImportAnterior = new Set(
+      previousImport?.nomes.filter((_, idx) => (previousImport.saldos[idx] ?? 0) > 0) ?? []
+    );
+
+    setLancamentos((prev) => {
+      // Mantém: linhas não-lucro e lucros que NÃO vieram do import anterior (manuais)
+      const mantidas = prev.filter((l) => {
+        if (l.tipoLancamentoId !== tipoLucroId) return true;
+        if (!l.historico) return true;
+        return !nomesDoImportAnterior.has(l.historico);
+      });
+
+      // Linhas do novo import
+      const novas: Lancamento[] = [];
+      dados.nomes.forEach((nome, idx) => {
+        if (dados.saldos[idx] > 0) {
+          novas.push({
+            id: genId(),
+            tipoLancamentoId: tipoLucroId,
+            historico: nome,
+            valor: dados.saldos[idx],
+            saldoManual: null,
+          });
+        }
+      });
+
+      return [...mantidas, ...novas];
     });
-    setLancamentos(linhas);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.dadosImportados, inicializado]);
 
@@ -191,6 +213,18 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
     if (temConteudo) manager.marcarEmAberto(activeId);
   }, [lancamentos, activeId, manager]);
 
+  const salvar = useCallback(async () => {
+    const id = activeIdForSave.current;
+    if (!id) return;
+    const gen = ++saveGenRef.current;
+    const rows = lancamentosToRows(id, lancamentos);
+    await supabase.from("acerto_lancamentos").delete().eq("acerto_id", id);
+    if (saveGenRef.current !== gen) return;
+    if (rows.length > 0) {
+      await supabase.from("acerto_lancamentos").insert(rows);
+    }
+  }, [lancamentos]);
+
   const addLancamento = useCallback(() => {
     if (encerrado) return;
     setLancamentos((prev) => [
@@ -218,7 +252,7 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
 
   return (
     <LancamentoContext.Provider
-      value={{ lancamentos, encerrado, addLancamento, updateLancamento, removeLancamento }}
+      value={{ lancamentos, encerrado, addLancamento, updateLancamento, removeLancamento, salvar }}
     >
       {children}
     </LancamentoContext.Provider>
