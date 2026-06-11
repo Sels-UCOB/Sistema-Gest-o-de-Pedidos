@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { X, FileSpreadsheet, Download } from "lucide-react";
+import { X, FileSpreadsheet, FileText, Download } from "lucide-react";
 import { pdf } from "@react-pdf/renderer";
 import { loadAttachmentForPreview } from "@/lib/campanhas/db/anexos";
 import { DocumentoEscalaPDF } from "@/lib/campanhas/pdf/DocumentoEscalaPDF";
@@ -13,14 +13,17 @@ interface Props {
 }
 
 export function ModalPreviewAnexo({ anexo, onClose }: Props) {
+  const isPdf = /\.pdf$/i.test(anexo.nome);
   const [sheets, setSheets] = useState<PreviewSheet[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!isPdf);
   const [error, setError] = useState<string | null>(null);
   const [activeSheet, setActiveSheet] = useState(0);
   const [gerandoPdf, setGerandoPdf] = useState(false);
   const [logoBase64, setLogoBase64] = useState<string | undefined>(undefined);
 
   useEffect(() => {
+    if (isPdf) return;
+
     loadAttachmentForPreview(anexo.id)
       .then((d) => { setSheets(d); setLoading(false); })
       .catch(() => { setError("Falha ao carregar o arquivo."); setLoading(false); });
@@ -38,7 +41,7 @@ export function ModalPreviewAnexo({ anexo, onClose }: Props) {
       )
       .then(setLogoBase64)
       .catch(() => {});
-  }, [anexo.id]);
+  }, [anexo.id, isPdf]);
 
   const handleGerarPdf = useCallback(async () => {
     if (!sheets) return;
@@ -72,11 +75,23 @@ export function ModalPreviewAnexo({ anexo, onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#2A2F45] shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            <FileSpreadsheet className="w-4 h-4 text-green-400 shrink-0" />
+            {isPdf
+              ? <FileText className="w-4 h-4 text-red-400 shrink-0" />
+              : <FileSpreadsheet className="w-4 h-4 text-green-400 shrink-0" />
+            }
             <span className="text-white font-medium text-sm truncate">{anexo.nome}</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {sheets && (
+            {isPdf ? (
+              <a
+                href={anexo.file_url}
+                download={anexo.nome}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#2A2F45] text-[#8B8FA8] hover:text-white transition-colors"
+              >
+                <Download className="w-3 h-3" />
+                Baixar
+              </a>
+            ) : sheets && (
               <button
                 type="button"
                 disabled={gerandoPdf}
@@ -102,20 +117,28 @@ export function ModalPreviewAnexo({ anexo, onClose }: Props) {
 
         {/* Body */}
         <div className="flex-1 overflow-hidden flex flex-col p-4 gap-3 min-h-0">
-          {loading && (
+          {isPdf && (
+            <iframe
+              src={anexo.file_url}
+              className="flex-1 w-full rounded-xl border border-[#2A2F45]"
+              title={anexo.nome}
+            />
+          )}
+
+          {!isPdf && loading && (
             <div className="flex items-center justify-center py-16 gap-3">
               <div className="w-5 h-5 border-2 border-[#6C63FF] border-t-transparent rounded-full animate-spin" />
               <span className="text-[#8B8FA8] text-sm">Carregando arquivo...</span>
             </div>
           )}
 
-          {error && (
+          {!isPdf && error && (
             <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400 text-center">
               {error}
             </div>
           )}
 
-          {sheets && (
+          {!isPdf && sheets && (
             <>
               {/* Sheet tabs */}
               {sheets.length > 1 && (

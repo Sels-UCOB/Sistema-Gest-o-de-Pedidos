@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FileSpreadsheet } from "lucide-react";
+import { FileSpreadsheet, FileText } from "lucide-react";
 import { uploadAnexo, listAnexos, softDeleteAnexo } from "@/lib/campanhas/db/anexos";
 import type { AcertoAnexo } from "@/lib/campanhas/types/anexo";
 import { PageNav } from "@/components/ui/page-nav";
@@ -111,7 +111,7 @@ export function PainelEscalas({ acertoId }: Props) {
             </div>
             <p className="text-white font-medium">Nenhuma escala anexada</p>
             <p className="text-sm text-[#8B8FA8] mt-1">
-              Envie um arquivo XLSX acima para começar.
+              Envie um arquivo XLSX ou PDF acima para começar.
             </p>
           </div>
         ) : (
@@ -138,7 +138,10 @@ export function PainelEscalas({ acertoId }: Props) {
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <FileSpreadsheet className="w-4 h-4 text-green-400 shrink-0" />
+                          {/\.pdf$/i.test(a.nome)
+                            ? <FileText className="w-4 h-4 text-red-400 shrink-0" />
+                            : <FileSpreadsheet className="w-4 h-4 text-green-400 shrink-0" />
+                          }
                           <span className="font-medium text-white truncate max-w-xs">
                             {a.nome}
                           </span>

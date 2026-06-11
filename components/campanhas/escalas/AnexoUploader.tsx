@@ -14,7 +14,7 @@ export function AnexoUploader({ onUpload, uploading }: Props) {
   const [dragOver, setDragOver] = useState(false);
 
   const handleFile = (file: File) => {
-    if (!file.name.match(/\.(xlsx|xls)$/i)) return;
+    if (!file.name.match(/\.(xlsx|xls|pdf)$/i)) return;
     onUpload(file);
   };
 
@@ -42,7 +42,7 @@ export function AnexoUploader({ onUpload, uploading }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept=".xlsx,.xls"
+        accept=".xlsx,.xls,.pdf"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -59,10 +59,10 @@ export function AnexoUploader({ onUpload, uploading }: Props) {
       )}
       <div>
         <p className="text-white font-medium text-sm">
-          {uploading ? "Enviando..." : "Clique ou arraste um arquivo XLSX"}
+          {uploading ? "Enviando..." : "Clique ou arraste um arquivo"}
         </p>
         {!uploading && (
-          <p className="text-xs text-[#8B8FA8] mt-1">Aceita .xlsx e .xls</p>
+          <p className="text-xs text-[#8B8FA8] mt-1">Aceita .xlsx, .xls e .pdf</p>
         )}
       </div>
     </div>
