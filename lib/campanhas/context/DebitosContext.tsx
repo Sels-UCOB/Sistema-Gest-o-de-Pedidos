@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   createContext,
@@ -9,6 +9,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { supabase } from "@/lib/supabase";
 import type { DevedorColportor, GastosLider, DebitoAdicional } from "@/lib/campanhas/types/debitos";
 import { useAcerto } from "@/lib/campanhas/context/AcertoContext";
 import { useAcertosManagerOptional } from "@/lib/campanhas/context/AcertosManagerContext";
@@ -22,19 +23,12 @@ interface DebitosContextValue {
   gastosLideres: GastosLider[];
   setGastosLider: (idx: number, gastos: number) => void;
   addDebitoAdicional: (liderIdx: number, preset?: { descricao: string; valor: number }) => void;
-  updateDebitoAdicional: (
-    liderIdx: number,
-    id: string,
-    parcial: Partial<Omit<DebitoAdicional, "id">>
-  ) => void;
+  updateDebitoAdicional: (liderIdx: number, id: string, parcial: Partial<Omit<DebitoAdicional, "id">>) => void;
   removeDebitoAdicional: (liderIdx: number, id: string) => void;
   gastosCaixa: GastosLider;
   setGastosCaixa: (gastos: number) => void;
   addDebitoAdicionalCaixa: () => void;
-  updateDebitoAdicionalCaixa: (
-    id: string,
-    parcial: Partial<Omit<DebitoAdicional, "id">>
-  ) => void;
+  updateDebitoAdicionalCaixa: (id: string, parcial: Partial<Omit<DebitoAdicional, "id">>) => void;
   removeDebitoAdicionalCaixa: (id: string) => void;
   salvar: () => void;
 }
@@ -53,136 +47,153 @@ const gastosLideresVazio = () => [
 ];
 
 function buildDevedores(nomes: string[], saldos: number[]): DevedorColportor[] {
-  const result: DevedorColportor[] = [];
-  nomes.forEach((nome, i) => {
-    if (saldos[i] < 0) {
-      result.push({ id: genId(), nome, valorDebito: Math.abs(saldos[i]) });
-    }
-  });
-  return result;
+  return nomes
+    .map((nome, i) =>
+      saldos[i] < 0 ? { id: genId(), nome, valorDebito: Math.abs(saldos[i]) } : null
+    )
+    .filter(Boolean) as DevedorColportor[];
+}
+
+function useDebounce<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
 }
 
 export function DebitosProvider({ children }: { children: ReactNode }) {
   const { state } = useAcerto();
   const manager = useAcertosManagerOptional();
   const activeId = manager?.activeId ?? null;
-
   const encerrado = manager?.activeAcerto?.status === "Encerrado";
 
   const [devedores, setDevedores] = useState<DevedorColportor[]>([]);
-  const [gastosLideres, setGastosLideresState] = useState<GastosLider[]>(
-    gastosLideresVazio()
-  );
-  const [gastosCaixa, setGastosCaixaState] = useState<GastosLider>({
-    ...GASTOS_VAZIO,
-  });
+  const [gastosLideres, setGastosLideresState] = useState<GastosLider[]>(gastosLideresVazio());
+  const [gastosCaixa, setGastosCaixaState] = useState<GastosLider>({ ...GASTOS_VAZIO });
   const [pronto, setPronto] = useState(false);
 
   const lastActiveIdRef = useRef<string | null | undefined>(undefined);
-  // Ref para detectar troca de relatório dentro do mesmo acerto
+  const activeIdForSave = useRef(activeId);
   const dadosRef = useRef(state.dadosImportados);
-  // Sinaliza que o Effect 1 carregou débitos do localStorage com sucesso,
-  // para que o Effect 2 não interprete o carregamento assíncrono do AcertoContext
-  // como uma nova importação de planilha (o que apagaria os débitos salvos).
-  const loadedFromStorageRef = useRef(false);
+  const loadedFromSupabaseRef = useRef(false);
 
-  // Carrega/reseta quando o acerto ativo muda
+  const debouncedDevedores = useDebounce(devedores, 600);
+  const debouncedGastosLideres = useDebounce(gastosLideres, 600);
+  const debouncedGastosCaixa = useDebounce(gastosCaixa, 600);
+
+  // Carrega do Supabase quando o acerto ativo muda
   useEffect(() => {
     if (lastActiveIdRef.current === activeId) return;
     lastActiveIdRef.current = activeId;
-    loadedFromStorageRef.current = false;
-    dadosRef.current = state.dadosImportados; // sincroniza ref p/ evitar detecção falsa
+    activeIdForSave.current = activeId;
+    loadedFromSupabaseRef.current = false;
+    dadosRef.current = state.dadosImportados;
     setPronto(false);
 
-    if (activeId) {
-      const saved = localStorage.getItem(`acerto_${activeId}_debitos`);
-      if (saved) {
-        try {
-          const data = JSON.parse(saved);
-          if (Array.isArray(data.devedores)) setDevedores(data.devedores);
-          if (Array.isArray(data.gastosLideres))
-            setGastosLideresState(data.gastosLideres);
-          if (data.gastosCaixa) setGastosCaixaState(data.gastosCaixa);
-          loadedFromStorageRef.current = true;
-          setPronto(true);
-          return;
-        } catch {
-          localStorage.removeItem(`acerto_${activeId}_debitos`);
-        }
-      }
+    if (!activeId) {
+      setDevedores([]);
+      setGastosLideresState(gastosLideresVazio());
+      setGastosCaixaState({ ...GASTOS_VAZIO });
+      setPronto(true);
+      return;
     }
 
-    // Sem dados salvos: inicializa pelo import atual se disponível
-    if (state.dadosImportados) {
-      setDevedores(
-        buildDevedores(state.dadosImportados.nomes, state.dadosImportados.saldos)
-      );
-    } else {
-      setDevedores([]);
-    }
-    setGastosLideresState(gastosLideresVazio());
-    setGastosCaixaState({ ...GASTOS_VAZIO });
-    setPronto(true);
+    supabase
+      .from("acerto_debitos")
+      .select("devedores, gastos_lideres, gastos_caixa")
+      .eq("acerto_id", activeId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (activeIdForSave.current !== activeId) return;
+        if (data) {
+          if (Array.isArray(data.devedores)) setDevedores(data.devedores);
+          if (Array.isArray(data.gastos_lideres)) setGastosLideresState(data.gastos_lideres);
+          if (data.gastos_caixa) setGastosCaixaState(data.gastos_caixa);
+          loadedFromSupabaseRef.current = true;
+        } else {
+          // Inicializa pelos dados importados se disponíveis
+          if (state.dadosImportados) {
+            setDevedores(buildDevedores(state.dadosImportados.nomes, state.dadosImportados.saldos));
+          } else {
+            setDevedores([]);
+          }
+          setGastosLideresState(gastosLideresVazio());
+          setGastosCaixaState({ ...GASTOS_VAZIO });
+        }
+        setPronto(true);
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, state.dadosImportados]);
 
-  // Detecta novo relatório importado dentro do mesmo acerto e reseta
+  // Detecta re-importação dentro do mesmo acerto
   useEffect(() => {
     if (!pronto) return;
     if (!state.dadosImportados) return;
     if (state.dadosImportados === dadosRef.current) return;
-
     dadosRef.current = state.dadosImportados;
 
-    // Se o Effect 1 acabou de carregar do localStorage, esta mudança de
-    // dadosImportados é apenas o AcertoContext terminando de carregar de forma
-    // assíncrona — não é uma reimportação pelo usuário, então não reseta.
-    if (loadedFromStorageRef.current) {
-      loadedFromStorageRef.current = false;
+    if (loadedFromSupabaseRef.current) {
+      loadedFromSupabaseRef.current = false;
       return;
     }
 
-    if (activeId) localStorage.removeItem(`acerto_${activeId}_debitos`);
-
-    setDevedores(
-      buildDevedores(state.dadosImportados.nomes, state.dadosImportados.saldos)
-    );
+    setDevedores(buildDevedores(state.dadosImportados.nomes, state.dadosImportados.saldos));
     setGastosLideresState(gastosLideresVazio());
     setGastosCaixaState({ ...GASTOS_VAZIO });
-  }, [state.dadosImportados, pronto, activeId]);
+  }, [state.dadosImportados, pronto]);
 
-  // Auto-salva
+  // Salva no Supabase (debounced)
   useEffect(() => {
-    if (!pronto || !activeId) return;
-    localStorage.setItem(
-      `acerto_${activeId}_debitos`,
-      JSON.stringify({ devedores, gastosLideres, gastosCaixa })
-    );
-  }, [devedores, gastosLideres, gastosCaixa, pronto, activeId]);
+    const id = activeIdForSave.current;
+    if (!id || !pronto) return;
+
+    supabase
+      .from("acerto_debitos")
+      .upsert(
+        {
+          acerto_id: id,
+          devedores: debouncedDevedores,
+          gastos_lideres: debouncedGastosLideres,
+          gastos_caixa: debouncedGastosCaixa,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "acerto_id" }
+      )
+      .then(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedDevedores, debouncedGastosLideres, debouncedGastosCaixa, pronto]);
 
   const salvar = useCallback(() => {
-    if (!activeId) return;
-    localStorage.setItem(
-      `acerto_${activeId}_debitos`,
-      JSON.stringify({ devedores, gastosLideres, gastosCaixa })
-    );
-  }, [devedores, gastosLideres, gastosCaixa, activeId]);
+    const id = activeIdForSave.current;
+    if (!id) return;
+    supabase
+      .from("acerto_debitos")
+      .upsert(
+        {
+          acerto_id: id,
+          devedores,
+          gastos_lideres: gastosLideres,
+          gastos_caixa: gastosCaixa,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "acerto_id" }
+      )
+      .then(() => {});
+  }, [devedores, gastosLideres, gastosCaixa]);
 
-  // --- Devedores ---
+  // ─── Devedores ───────────────────────────────────────────────────────────────
+
   const addDevedor = useCallback(() => {
     if (encerrado) return;
-    setDevedores((prev) => [
-      ...prev,
-      { id: genId(), nome: "", valorDebito: 0 },
-    ]);
+    setDevedores((prev) => [...prev, { id: genId(), nome: "", valorDebito: 0 }]);
   }, [encerrado]);
 
   const updateDevedor = useCallback(
     (id: string, parcial: Partial<Omit<DevedorColportor, "id">>) => {
       if (encerrado) return;
-      setDevedores((prev) =>
-        prev.map((d) => (d.id === id ? { ...d, ...parcial } : d))
-      );
+      setDevedores((prev) => prev.map((d) => (d.id === id ? { ...d, ...parcial } : d)));
     },
     [encerrado]
   );
@@ -192,34 +203,32 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
     setDevedores((prev) => prev.filter((d) => d.id !== id));
   }, [encerrado]);
 
-  // --- Gastos líderes ---
+  // ─── Gastos líderes ──────────────────────────────────────────────────────────
+
   const setGastosLider = useCallback((idx: number, gastos: number) => {
     if (encerrado) return;
     setGastosLideresState((prev) => {
-      const next = prev.map((g) => ({
-        ...g,
-        debitosAdicionais: [...g.debitosAdicionais],
-      }));
+      const next = prev.map((g) => ({ ...g, debitosAdicionais: [...g.debitosAdicionais] }));
       next[idx] = { ...next[idx], gastos };
       return next;
     });
   }, [encerrado]);
 
-  const addDebitoAdicional = useCallback((liderIdx: number, preset?: { descricao: string; valor: number }) => {
-    if (encerrado) return;
-    setGastosLideresState((prev) => {
-      const next = prev.map((g) => ({
-        ...g,
-        debitosAdicionais: [...g.debitosAdicionais],
-      }));
-      next[liderIdx].debitosAdicionais.push({
-        id: genId(),
-        descricao: preset?.descricao ?? "",
-        valor: preset?.valor ?? 0,
+  const addDebitoAdicional = useCallback(
+    (liderIdx: number, preset?: { descricao: string; valor: number }) => {
+      if (encerrado) return;
+      setGastosLideresState((prev) => {
+        const next = prev.map((g) => ({ ...g, debitosAdicionais: [...g.debitosAdicionais] }));
+        next[liderIdx].debitosAdicionais.push({
+          id: genId(),
+          descricao: preset?.descricao ?? "",
+          valor: preset?.valor ?? 0,
+        });
+        return next;
       });
-      return next;
-    });
-  }, [encerrado]);
+    },
+    [encerrado]
+  );
 
   const updateDebitoAdicional = useCallback(
     (liderIdx: number, id: string, parcial: Partial<Omit<DebitoAdicional, "id">>) => {
@@ -228,12 +237,7 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
         prev.map((g, gi) =>
           gi !== liderIdx
             ? g
-            : {
-                ...g,
-                debitosAdicionais: g.debitosAdicionais.map((d) =>
-                  d.id === id ? { ...d, ...parcial } : d
-                ),
-              }
+            : { ...g, debitosAdicionais: g.debitosAdicionais.map((d) => (d.id === id ? { ...d, ...parcial } : d)) }
         )
       );
     },
@@ -246,15 +250,13 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
       prev.map((g, gi) =>
         gi !== liderIdx
           ? g
-          : {
-              ...g,
-              debitosAdicionais: g.debitosAdicionais.filter((d) => d.id !== id),
-            }
+          : { ...g, debitosAdicionais: g.debitosAdicionais.filter((d) => d.id !== id) }
       )
     );
   }, [encerrado]);
 
-  // --- Gastos caixa ---
+  // ─── Gastos caixa ────────────────────────────────────────────────────────────
+
   const setGastosCaixa = useCallback((gastos: number) => {
     if (encerrado) return;
     setGastosCaixaState((prev) => ({ ...prev, gastos }));
@@ -264,10 +266,7 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
     if (encerrado) return;
     setGastosCaixaState((prev) => ({
       ...prev,
-      debitosAdicionais: [
-        ...prev.debitosAdicionais,
-        { id: genId(), descricao: "", valor: 0 },
-      ],
+      debitosAdicionais: [...prev.debitosAdicionais, { id: genId(), descricao: "", valor: 0 }],
     }));
   }, [encerrado]);
 
@@ -276,9 +275,7 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
       if (encerrado) return;
       setGastosCaixaState((prev) => ({
         ...prev,
-        debitosAdicionais: prev.debitosAdicionais.map((d) =>
-          d.id === id ? { ...d, ...parcial } : d
-        ),
+        debitosAdicionais: prev.debitosAdicionais.map((d) => (d.id === id ? { ...d, ...parcial } : d)),
       }));
     },
     [encerrado]
@@ -296,20 +293,9 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
     <DebitosContext.Provider
       value={{
         encerrado,
-        devedores,
-        addDevedor,
-        updateDevedor,
-        removeDevedor,
-        gastosLideres,
-        setGastosLider,
-        addDebitoAdicional,
-        updateDebitoAdicional,
-        removeDebitoAdicional,
-        gastosCaixa,
-        setGastosCaixa,
-        addDebitoAdicionalCaixa,
-        updateDebitoAdicionalCaixa,
-        removeDebitoAdicionalCaixa,
+        devedores, addDevedor, updateDevedor, removeDevedor,
+        gastosLideres, setGastosLider, addDebitoAdicional, updateDebitoAdicional, removeDebitoAdicional,
+        gastosCaixa, setGastosCaixa, addDebitoAdicionalCaixa, updateDebitoAdicionalCaixa, removeDebitoAdicionalCaixa,
         salvar,
       }}
     >
@@ -320,7 +306,6 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
 
 export function useDebitos() {
   const ctx = useContext(DebitosContext);
-  if (!ctx)
-    throw new Error("useDebitos deve ser usado dentro de DebitosProvider");
+  if (!ctx) throw new Error("useDebitos deve ser usado dentro de DebitosProvider");
   return ctx;
 }

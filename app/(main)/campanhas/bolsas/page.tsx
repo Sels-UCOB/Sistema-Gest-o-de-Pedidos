@@ -26,7 +26,7 @@ export default function BolsasPage() {
           <span className="text-white font-medium">{activeAcerto.nome}</span>.
         </p>
       </div>
-      <PainelBolsas acertoId={activeId} />
+      <PainelBolsas acertoId={activeId} acertoNome={activeAcerto.nome} />
     </div>
   );
 }

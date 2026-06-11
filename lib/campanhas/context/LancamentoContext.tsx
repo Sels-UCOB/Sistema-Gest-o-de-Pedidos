@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   createContext,
@@ -9,6 +9,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
+import { supabase } from "@/lib/supabase";
 import type { Lancamento } from "@/lib/campanhas/types/lancamento";
 import { useAcerto } from "@/lib/campanhas/context/AcertoContext";
 import { useConfiguracao } from "@/lib/campanhas/context/ConfiguracaoContext";
@@ -35,47 +36,76 @@ const linhaVazia = (): Lancamento => ({
   saldoManual: 0,
 });
 
+function lancamentosToRows(acertoId: string, lancamentos: Lancamento[]) {
+  return lancamentos.map((l, idx) => ({
+    id: l.id,
+    acerto_id: acertoId,
+    tipo_lancamento_id: l.tipoLancamentoId,
+    historico: l.historico,
+    valor: l.valor,
+    saldo_manual: l.saldoManual,
+    posicao: idx,
+  }));
+}
+
+function rowToLancamento(row: Record<string, unknown>): Lancamento {
+  return {
+    id: row.id as string,
+    tipoLancamentoId: (row.tipo_lancamento_id as string) ?? "",
+    historico: (row.historico as string) ?? "",
+    valor: row.valor as number | null,
+    saldoManual: row.saldo_manual as number | null,
+  };
+}
+
 export function LancamentoProvider({ children }: { children: ReactNode }) {
   const { state } = useAcerto();
   const { tipos } = useConfiguracao();
   const manager = useAcertosManagerOptional();
   const activeId = manager?.activeId ?? null;
-
   const encerrado = manager?.activeAcerto?.status === "Encerrado";
 
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [inicializado, setInicializado] = useState(false);
   const lastActiveIdRef = useRef<string | null | undefined>(undefined);
+  const activeIdForSave = useRef(activeId);
+  // Ref para detectar re-importação dentro do mesmo acerto
+  const dadosRef = useRef(state.dadosImportados);
 
-  // Carrega/reseta quando o acerto ativo muda
+  // Carrega do Supabase quando o acerto ativo muda
   useEffect(() => {
     if (lastActiveIdRef.current === activeId) return;
     lastActiveIdRef.current = activeId;
+    activeIdForSave.current = activeId;
 
-    if (activeId) {
-      const saved = localStorage.getItem(`acerto_${activeId}_lancamentos`);
-      if (saved) {
-        try {
-          setLancamentos(JSON.parse(saved));
-          setInicializado(true);
-          return;
-        } catch {
-          localStorage.removeItem(`acerto_${activeId}_lancamentos`);
-        }
-      }
+    if (!activeId) {
+      setInicializado(false);
+      setLancamentos([linhaVazia()]);
+      return;
     }
-    // Sem dados salvos: reinicia para deixar o efeito de inicialização agir
-    setInicializado(false);
-    setLancamentos([linhaVazia()]);
+
+    supabase
+      .from("acerto_lancamentos")
+      .select("*")
+      .eq("acerto_id", activeId)
+      .order("posicao", { ascending: true })
+      .then(({ data }) => {
+        if (activeIdForSave.current !== activeId) return;
+        if (data && data.length > 0) {
+          setLancamentos(data.map(rowToLancamento));
+          setInicializado(true);
+        } else {
+          setInicializado(false);
+          setLancamentos([linhaVazia()]);
+        }
+      });
   }, [activeId]);
 
-  // Inicializa a partir dos dados importados (quando não há dados salvos)
+  // Inicializa a partir dos dados importados quando não há dados no Supabase
   useEffect(() => {
     if (inicializado) return;
-
     const tipoLucro = tipos.find((t) => t.nome === "Lucro");
     const dados = state.dadosImportados;
-
     const linhas: Lancamento[] = [linhaVazia()];
 
     if (dados) {
@@ -96,11 +126,48 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
     setLancamentos(linhas);
   }, [inicializado, state.dadosImportados, tipos]);
 
-  // Auto-salva
+  // Detecta re-importação dentro do mesmo acerto e reseta
   useEffect(() => {
-    if (!activeId || !inicializado) return;
-    localStorage.setItem(`acerto_${activeId}_lancamentos`, JSON.stringify(lancamentos));
-  }, [lancamentos, activeId, inicializado]);
+    if (!inicializado) return;
+    if (!state.dadosImportados) return;
+    if (state.dadosImportados === dadosRef.current) return;
+    dadosRef.current = state.dadosImportados;
+
+    const tipoLucro = tipos.find((t) => t.nome === "Lucro");
+    const linhas: Lancamento[] = [linhaVazia()];
+    state.dadosImportados.nomes.forEach((nome, idx) => {
+      if (state.dadosImportados!.saldos[idx] > 0) {
+        linhas.push({
+          id: genId(),
+          tipoLancamentoId: tipoLucro?.id ?? "",
+          historico: nome,
+          valor: state.dadosImportados!.saldos[idx],
+          saldoManual: null,
+        });
+      }
+    });
+    setLancamentos(linhas);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.dadosImportados]);
+
+  // Persiste no Supabase sempre que a lista muda (após inicialização)
+  useEffect(() => {
+    const id = activeIdForSave.current;
+    if (!id || !inicializado) return;
+
+    const rows = lancamentosToRows(id, lancamentos);
+    // Substitui todos os lançamentos do acerto (delete + insert)
+    supabase
+      .from("acerto_lancamentos")
+      .delete()
+      .eq("acerto_id", id)
+      .then(() => {
+        if (rows.length > 0) {
+          supabase.from("acerto_lancamentos").insert(rows).then(() => {});
+        }
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lancamentos, inicializado]);
 
   // Marca "Em Aberto" ao primeiro lançamento preenchido
   useEffect(() => {
@@ -113,22 +180,14 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
     if (encerrado) return;
     setLancamentos((prev) => [
       ...prev,
-      {
-        id: genId(),
-        tipoLancamentoId: "",
-        historico: "",
-        valor: null,
-        saldoManual: null,
-      },
+      { id: genId(), tipoLancamentoId: "", historico: "", valor: null, saldoManual: null },
     ]);
   }, [encerrado]);
 
   const updateLancamento = useCallback(
     (id: string, parcial: Partial<Omit<Lancamento, "id">>) => {
       if (encerrado) return;
-      setLancamentos((prev) =>
-        prev.map((l) => (l.id === id ? { ...l, ...parcial } : l))
-      );
+      setLancamentos((prev) => prev.map((l) => (l.id === id ? { ...l, ...parcial } : l)));
     },
     [encerrado]
   );
@@ -153,7 +212,6 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
 
 export function useLancamento() {
   const ctx = useContext(LancamentoContext);
-  if (!ctx)
-    throw new Error("useLancamento deve ser usado dentro de LancamentoProvider");
+  if (!ctx) throw new Error("useLancamento deve ser usado dentro de LancamentoProvider");
   return ctx;
 }

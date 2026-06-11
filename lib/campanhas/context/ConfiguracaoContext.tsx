@@ -6,12 +6,12 @@ import {
   useState,
   useCallback,
   useEffect,
+  useRef,
   type ReactNode,
 } from "react";
+import { supabase } from "@/lib/supabase";
 import type { TipoLancamento, Campo, LiderConfig } from "@/lib/campanhas/types/configuracao";
 import { TIPOS_INICIAIS, CAMPOS_INICIAIS } from "@/lib/campanhas/config/configuracoes";
-
-const STORAGE_KEY = "campanhas_config_global_v1";
 
 interface ConfiguracaoContextValue {
   tipos: TipoLancamento[];
@@ -36,33 +36,62 @@ const ConfiguracaoContext = createContext<ConfiguracaoContextValue | null>(null)
 let _seq = 200;
 const genId = () => String(_seq++);
 
+function useDebounce<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
+}
+
 export function ConfiguracaoProvider({ children }: { children: ReactNode }) {
   const [tipos, setTipos] = useState<TipoLancamento[]>(TIPOS_INICIAIS);
   const [campos, setCampos] = useState<Campo[]>(CAMPOS_INICIAIS);
   const [lideres, setLideres] = useState<LiderConfig[]>([]);
   const [carregado, setCarregado] = useState(false);
 
-  // Carrega do localStorage no mount
+  const debouncedTipos = useDebounce(tipos, 800);
+  const debouncedCampos = useDebounce(campos, 800);
+  const debouncedLideres = useDebounce(lideres, 800);
+  const saveRef = useRef(carregado);
+  saveRef.current = carregado;
+
+  // Carrega do Supabase na montagem
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const data = JSON.parse(saved);
-        if (Array.isArray(data.tipos) && data.tipos.length > 0) setTipos(data.tipos);
-        if (Array.isArray(data.campos) && data.campos.length > 0) setCampos(data.campos);
-        if (Array.isArray(data.lideres)) setLideres(data.lideres);
-      }
-    } catch {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-    setCarregado(true);
+    supabase
+      .from("config_global")
+      .select("tipos, campos, lideres")
+      .eq("id", 1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          if (Array.isArray(data.tipos) && data.tipos.length > 0) setTipos(data.tipos);
+          if (Array.isArray(data.campos) && data.campos.length > 0) setCampos(data.campos);
+          if (Array.isArray(data.lideres)) setLideres(data.lideres);
+        }
+        setCarregado(true);
+      });
   }, []);
 
-  // Auto-salva sempre que os dados mudam (somente após o carregamento inicial)
+  // Salva no Supabase (debounced) quando dados mudam
   useEffect(() => {
-    if (!carregado) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ tipos, campos, lideres }));
-  }, [tipos, campos, lideres, carregado]);
+    if (!saveRef.current) return;
+    supabase
+      .from("config_global")
+      .upsert(
+        {
+          id: 1,
+          tipos: debouncedTipos,
+          campos: debouncedCampos,
+          lideres: debouncedLideres,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      )
+      .then(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedTipos, debouncedCampos, debouncedLideres]);
 
   const addTipo = useCallback((tipo: Omit<TipoLancamento, "id">) => {
     setTipos((p) => [...p, { ...tipo, id: genId() }]);

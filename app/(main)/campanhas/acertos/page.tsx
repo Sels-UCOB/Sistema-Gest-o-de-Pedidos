@@ -8,6 +8,7 @@ import { FiltrosAcertos } from "@/components/campanhas/acertos/FiltrosAcertos";
 import { TabelaAcertos } from "@/components/campanhas/acertos/TabelaAcertos";
 import { ModalCriarAcerto } from "@/components/campanhas/acertos/ModalCriarAcerto";
 import type { AcertoMeta, CriarAcertoData, FiltrosAcerto } from "@/lib/campanhas/types/acertoManager";
+import { ModalBolsasGlobal } from "@/components/campanhas/acertos/ModalBolsasGlobal";
 
 const FILTROS_INICIAIS: FiltrosAcerto = {
   status: "todos",
@@ -25,6 +26,7 @@ export default function PainelAcertosPage() {
   const [filtros, setFiltros] = useState<FiltrosAcerto>(FILTROS_INICIAIS);
   const [modalAberto, setModalAberto] = useState(false);
   const [acertoParaEditar, setAcertoParaEditar] = useState<AcertoMeta | null>(null);
+  const [bolsasGlobalAberto, setBolsasGlobalAberto] = useState(false);
 
   const acertosFiltrados = useMemo(() => {
     return acertos.filter((a) => {
@@ -37,15 +39,15 @@ export default function PainelAcertosPage() {
     });
   }, [acertos, filtros]);
 
-  const handleCriar = (data: CriarAcertoData) => {
-    createAcerto(data);
+  const handleCriar = async (data: CriarAcertoData) => {
+    await createAcerto(data);
     setModalAberto(false);
     router.push("/campanhas");
   };
 
-  const handleEditar = (data: CriarAcertoData) => {
+  const handleEditar = async (data: CriarAcertoData) => {
     if (!acertoParaEditar) return;
-    updateAcerto(acertoParaEditar.id, data);
+    await updateAcerto(acertoParaEditar.id, data);
     setAcertoParaEditar(null);
     setModalAberto(false);
   };
@@ -82,13 +84,22 @@ export default function PainelAcertosPage() {
           <h1 className="text-xl sm:text-2xl md:text-3xl tracking-tight text-white">Painel de Acertos</h1>
           <p className="text-sm text-[#8B8FA8] mt-1">Gerencie os ciclos de acerto das campanhas de colportagem.</p>
         </div>
-        <button
-          type="button"
-          className="shrink-0 px-4 py-2 rounded-xl bg-[#6C63FF] text-white font-medium text-sm hover:bg-[#5A52E8] transition-colors"
-          onClick={() => { setAcertoParaEditar(null); setModalAberto(true); }}
-        >
-          + Novo Acerto
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            className="px-4 py-2 rounded-xl bg-[#2A2F45] text-[#8B8FA8] font-medium text-sm hover:text-white transition-colors"
+            onClick={() => setBolsasGlobalAberto(true)}
+          >
+            Ver Bolsas
+          </button>
+          <button
+            type="button"
+            className="px-4 py-2 rounded-xl bg-[#6C63FF] text-white font-medium text-sm hover:bg-[#5A52E8] transition-colors"
+            onClick={() => { setAcertoParaEditar(null); setModalAberto(true); }}
+          >
+            + Novo Acerto
+          </button>
+        </div>
       </div>
 
       {/* Resumo rápido */}
@@ -117,6 +128,10 @@ export default function PainelAcertosPage() {
         onEditar={handleAbrirEditar}
         onExcluir={(a) => deleteAcerto(a.id)}
       />
+
+      {bolsasGlobalAberto && (
+        <ModalBolsasGlobal onClose={() => setBolsasGlobalAberto(false)} />
+      )}
 
       {modalAberto && (
         <ModalCriarAcerto
