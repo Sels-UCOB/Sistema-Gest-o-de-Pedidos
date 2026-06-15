@@ -114,15 +114,14 @@ async function migrar(): Promise<{ migrados: number; erros: string[] }> {
   if (configRaw) {
     try {
       const cfg = JSON.parse(configRaw);
-      await supabase.from("config_global").upsert(
-        {
-          id: 1,
+      await supabase
+        .from("config_global")
+        .update({
           tipos: cfg.tipos ?? [],
           campos: cfg.campos ?? [],
           lideres: cfg.lideres ?? [],
-        },
-        { onConflict: "id" }
-      );
+        })
+        .eq("id", 1);
     } catch (e) {
       erros.push(`config_global: ${String(e)}`);
     }

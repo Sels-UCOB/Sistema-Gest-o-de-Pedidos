@@ -79,16 +79,13 @@ export function ConfiguracaoProvider({ children }: { children: ReactNode }) {
     if (!saveRef.current) return;
     supabase
       .from("config_global")
-      .upsert(
-        {
-          id: 1,
-          tipos: debouncedTipos,
-          campos: debouncedCampos,
-          lideres: debouncedLideres,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "id" }
-      )
+      .update({
+        tipos: debouncedTipos,
+        campos: debouncedCampos,
+        lideres: debouncedLideres,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", 1)
       .then(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedTipos, debouncedCampos, debouncedLideres]);

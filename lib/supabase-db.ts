@@ -378,6 +378,27 @@ export async function updateProfile(id: string, updates: Partial<Pick<ProfileRow
   if (error) throw error;
 }
 
+// ─── Campanhas ───────────────────────────────────────────────────────────────
+
+export type CampanhaDef = { code: string; campo: "GO" | "MT" | "MS" };
+
+export async function getCampanhas(): Promise<CampanhaDef[]> {
+  const { data, error } = await supabase
+    .from("config_global")
+    .select("campanhas")
+    .single();
+  if (error) throw error;
+  return (data?.campanhas ?? []) as CampanhaDef[];
+}
+
+export async function saveCampanhas(campanhas: CampanhaDef[]): Promise<void> {
+  const { error } = await supabase
+    .from("config_global")
+    .update({ campanhas })
+    .eq("id", 1);
+  if (error) throw error;
+}
+
 // ─── Storage: Photo Cleanup ──────────────────────────────────────────────────
 
 function urlToStoragePath(url: string): string | null {

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useConfirm } from "@/hooks/use-confirm";
 import { Order, OrderItem, Product } from "@/lib/db";
-import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deleteOrder, deductInventoryStock, getInventory, uploadOrderPhoto, deleteOrderPhotos, deleteOrderAllPhotos } from "@/lib/supabase-db";
+import { getProducts, getOrdersPaged, getOrderFull, addOrder, updateOrder, deleteOrder, deductInventoryStock, getInventory, uploadOrderPhoto, deleteOrderPhotos, deleteOrderAllPhotos, getCampanhas, CampanhaDef } from "@/lib/supabase-db";
 import type { InventoryRow } from "@/lib/supabase-db";
 import { formatAge } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ import { formatAge } from "@/lib/utils";
 const CK_ORDERS    = "v1_orders_list";
 const CK_PRODUCTS  = "v1_products";
 const CK_INVENTORY = "v1_inventory";
+const CK_CAMPANHAS = "v1_campanhas";
 
 function cacheRead<T>(key: string): T | null {
   try { const r = localStorage.getItem(key); return r ? (JSON.parse(r).data as T) : null; } catch { return null; }
@@ -21,7 +22,7 @@ function cacheWrite<T>(key: string, data: T) {
 function cacheTsRead(key: string): number | null {
   try { const r = localStorage.getItem(key); return r ? (JSON.parse(r).ts as number) : null; } catch { return null; }
 }
-import { CAMPO_MAP, WAREHOUSES, WarehouseId } from "@/lib/campos";
+import { WAREHOUSES, WarehouseId } from "@/lib/campos";
 import { findBestMatch, findTopMatches } from "@/lib/string-utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,7 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PageNav } from "@/components/ui/page-nav";
-import { Camera, Search, PlusCircle, ChevronRight, Package, Pencil, Trash2, Wand2 } from "lucide-react";
+import { Camera, PlusCircle, ChevronRight, Package, Pencil, Trash2, Wand2 } from "lucide-react";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUserRole } from "@/lib/user-context";
@@ -42,14 +43,46 @@ import { useUserRole } from "@/lib/user-context";
 
 type WppItem = { qty: number; rawText: string; matched: Product | null };
 
-// Palavras que indicam fim da lista de itens em mensagens informais
-const WPP_STOP_RE = /\s+(e\s+)?(?:enviar|mandar|entregar|para\s+\w|no\s+acerto|pelo\s+|por\s+gentileza|comprovante|obrigad|valeu|att\b|abs\b|aguardo|segue|favor\b|ok\b|destino|total|valor)/i;
+// Palavras que indicam fim da lista de itens em mensagens informais.
+// "para" removido propositalmente: cortava nomes de produtos como "21 Dias para Mudar".
+const WPP_STOP_RE = /\s+(e\s+)?(?:enviar|mandar|entregar|no\s+acerto|pelo\s+|por\s+gentileza|comprovante|obrigad|valeu|att\b|abs\b|aguardo|segue|favor\b|ok\b|destino|total|valor)/i;
 
-// Extrai pares {qty, rawText} de uma mensagem informal sem tentar casar produtos
-function extractFragments(text: string): { qty: number; rawText: string }[] {
-  if (!text.trim()) return [];
+function cleanupFragment(raw: string): string {
+  let f = raw.trim();
+  const stop = WPP_STOP_RE.exec(f);
+  if (stop) f = f.slice(0, stop.index);
+  return f
+    .replace(/[,;!?.\s]+$/, "")
+    .replace(/\s+e\s*$/, "")
+    .replace(/^[-–—•·]\s*/, "")
+    .replace(/^(?:combos?\s+(?:de\s+)?|unidades?\s+(?:de\s+)?|caixas?\s+(?:de\s+)?|exemplares?\s+(?:de\s+)?|volumes?\s+(?:de\s+)?)/i, "")
+    .replace(/^(?:da\s+|do\s+|de\s+|dos\s+|das\s+|um\s+|uma\s+)/i, "")
+    .trim();
+}
 
-  const numRe = /\b(\d+)\s+/g;
+// Parsing linha a linha: cada linha é um item independente.
+// Preserva números que fazem parte do nome ("3 combo 30 dias" → qty=3, rawText="combo 30 dias").
+function extractFragmentsByLine(lines: string[]): { qty: number; rawText: string }[] {
+  const results: { qty: number; rawText: string }[] = [];
+  for (const line of lines) {
+    // Formatos: "5 produto", "5x produto", "- 5 produto", "5 - produto"
+    const m =
+      line.match(/^[-–—•·*]?\s*(\d+)[xX]?\s*[-–—]?\s*(.+)$/) ??
+      line.match(/^(.+?)\s*[-–—]\s*(\d+)[xX]?\s*$/);
+    if (!m) continue;
+    const [, a, b] = m;
+    const reversed = /^\d/.test(b ?? "");
+    const qty = parseInt(reversed ? b : a);
+    const rawText = cleanupFragment(reversed ? a : b);
+    if (rawText.length >= 2 && qty >= 1) results.push({ qty, rawText });
+  }
+  return results;
+}
+
+// Parsing inline: múltiplos itens numa única linha separados por quantidade.
+// Aceita "5x produto" além de "5 produto".
+function extractFragmentsInline(text: string): { qty: number; rawText: string }[] {
+  const numRe = /\b(\d+)[xX]?\s+/g;
   const positions: { qty: number; textStart: number; numStart: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = numRe.exec(text)) !== null) {
@@ -57,24 +90,12 @@ function extractFragments(text: string): { qty: number; rawText: string }[] {
   }
   if (positions.length === 0) return [];
 
-  const cleanup = (raw: string): string => {
-    let f = raw.trim();
-    const stop = WPP_STOP_RE.exec(f);
-    if (stop) f = f.slice(0, stop.index);
-    return f
-      .replace(/[,;!?.\s]+$/, "")
-      .replace(/\s+e\s*$/, "")
-      .replace(/^(?:combos?\s+(?:de\s+)?|unidades?\s+(?:de\s+)?|caixas?\s+(?:de\s+)?|exemplares?\s+(?:de\s+)?|volumes?\s+(?:de\s+)?)/i, "")
-      .replace(/^(?:da\s+|do\s+|de\s+|dos\s+|das\s+|um\s+|uma\s+)/i, "")
-      .trim();
-  };
-
   const results: { qty: number; rawText: string }[] = [];
   let i = 0;
   while (i < positions.length) {
     const { qty, textStart } = positions[i];
     const end = i + 1 < positions.length ? positions[i + 1].numStart : text.length;
-    const fragment = cleanup(text.slice(textStart, end));
+    const fragment = cleanupFragment(text.slice(textStart, end));
 
     // Fragmento muito curto = apenas separador (ex: "1 - 21 dias" → fragmento "-").
     // O próximo número faz parte do nome do produto, não é uma quantidade.
@@ -82,7 +103,7 @@ function extractFragments(text: string): { qty: number; rawText: string }[] {
     if (fragment.length < 2 && i + 1 < positions.length) {
       const next = positions[i + 1];
       const nextEnd = i + 2 < positions.length ? positions[i + 2].numStart : text.length;
-      const nextFragment = cleanup(text.slice(next.textStart, nextEnd));
+      const nextFragment = cleanupFragment(text.slice(next.textStart, nextEnd));
       const merged = `${next.qty} ${nextFragment}`.trim();
       if (merged.length >= 2) results.push({ qty, rawText: merged });
       i += 2;
@@ -93,6 +114,18 @@ function extractFragments(text: string): { qty: number; rawText: string }[] {
     i++;
   }
   return results;
+}
+
+// Extrai pares {qty, rawText} de uma mensagem informal sem tentar casar produtos.
+// Tenta parsing por linha primeiro; cai para inline quando a mensagem é de linha única.
+function extractFragments(text: string): { qty: number; rawText: string }[] {
+  if (!text.trim()) return [];
+  const lines = text.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
+  if (lines.length > 1) {
+    const byLine = extractFragmentsByLine(lines);
+    if (byLine.length > 0) return byLine;
+  }
+  return extractFragmentsInline(text);
 }
 
 // Parser local completo (fallback quando IA não está disponível)
@@ -115,11 +148,13 @@ export default function OrdersPage() {
   const { displayName, isAdmin, campo, profileLoaded, refreshTick } = useUserRole();
   const { confirm, dialog: confirmDialog } = useConfirm();
 
+  const [campanhas, setCampanhas] = useState<CampanhaDef[]>([]);
+
   const CAMPANHAS = useMemo(() => {
-    const all = Object.keys(CAMPO_MAP).sort();
+    const all = campanhas.map(c => c.code).sort();
     if (isAdmin || !campo) return all;
-    return all.filter(c => CAMPO_MAP[c] === campo);
-  }, [isAdmin, campo]);
+    return campanhas.filter(c => c.campo === campo).map(c => c.code).sort();
+  }, [campanhas, isAdmin, campo]);
   const [activeTab, setActiveTab] = useState("create");
   const [products, setProducts] = useState<Product[] | undefined>(undefined);
   const [orders, setOrders] = useState<Order[] | undefined>(undefined);
@@ -142,6 +177,8 @@ export default function OrdersPage() {
     if (cp) setProducts(cp);
     const ci = cacheRead<InventoryRow[]>(CK_INVENTORY);
     if (ci) setInventory(ci);
+    const cc = cacheRead<CampanhaDef[]>(CK_CAMPANHAS);
+    if (cc) setCampanhas(cc);
   }, []);
 
   const loadOrders = useCallback(async () => {
@@ -181,6 +218,9 @@ export default function OrdersPage() {
     getInventory()
       .then(data => { setInventory(data); cacheWrite(CK_INVENTORY, data); })
       .catch(() => setInventory(prev => prev ?? []));
+    getCampanhas()
+      .then(data => { setCampanhas(data); cacheWrite(CK_CAMPANHAS, data); })
+      .catch(() => {});
     loadOrders();
   }, [loadOrders, profileLoaded, refreshTick]);
 
@@ -456,7 +496,7 @@ export default function OrdersPage() {
   }, [separatingOrder?.id]); // só dispara quando o pedido ativo muda, não a cada item
 
   const warehouseOptions = campaignCode
-    ? WAREHOUSES.filter(w => w.campo === CAMPO_MAP[campaignCode])
+    ? WAREHOUSES.filter(w => w.campo === campanhas.find(c => c.code === campaignCode)?.campo)
     : [];
 
   const stockMap = useMemo(() => {
@@ -481,51 +521,10 @@ export default function OrdersPage() {
   }, [orders, filterSearch, filterStatus, filterTipo]);
 
   const [errors, setErrors] = useState<{customerName?: string, destinationCity?: string}>({});
-  const [suggestions, setSuggestions] = useState<{id: string, name: string}[]>([]);
   const [ambiguousItems, setAmbiguousItems] = useState<{idx: number, query: string, options: {id: string, name: string}[]}[]>([]);
   const [manualSearch, setManualSearch] = useState<{idx: number} | null>(null);
   const [manualSearchResults, setManualSearchResults] = useState<{id: string, name: string}[]>([]);
   const [expandedAmbiguous, setExpandedAmbiguous] = useState<Set<number>>(new Set());
-
-  const handleParseItems = () => {
-    if (!products) return;
-    const lines = rawItems.split("\n").filter(l => l.trim().length > 0);
-    const newParsed: OrderItem[] = [];
-    const newAmbiguous: {idx: number, query: string, options: {id: string, name: string}[]}[] = [];
-    for (const line of lines) {
-      let qty = 1;
-      let nameStr = line;
-
-      const match = line.match(/^(\d+)(?:\s*[-xX]\s*|\s+)(.+)$/);
-      if (match) {
-        qty = parseInt(match[1], 10);
-        nameStr = match[2];
-      }
-
-      const lowerName = nameStr.toLowerCase().trim();
-      const multipleMatches = products.filter(p =>
-        p.name.toLowerCase().includes(lowerName.replace(/s$/, '')) ||
-        lowerName.split(" ").filter(w => w.length >= 3).some(w => p.name.toLowerCase().includes(w))
-      ).slice(0, 5);
-
-      const exactMatch = multipleMatches.find(p => p.name.toLowerCase() === lowerName);
-      let bestProductMatch = exactMatch || (multipleMatches.length === 1 ? multipleMatches[0] : findBestMatch(nameStr, products));
-
-      if (!exactMatch && multipleMatches.length > 1 && !bestProductMatch) {
-        newAmbiguous.push({ idx: newParsed.length, query: nameStr, options: multipleMatches });
-        bestProductMatch = multipleMatches[0];
-      }
-
-      if (bestProductMatch) {
-        newParsed.push({ productId: bestProductMatch.id, name: bestProductMatch.name, quantity: qty, isSeparated: false });
-      } else {
-        newParsed.push({ productId: `unknown-${Date.now()}`, name: nameStr, quantity: qty, isSeparated: false });
-      }
-    }
-    setParsedItems(newParsed);
-    setAmbiguousItems(newAmbiguous);
-    setShowPreview(true);
-  };
 
   const handleCreateOrder = async () => {
     const nomeValido = (val: string) => val.trim().length >= 3 && /^[a-zA-ZÀ-ÿ\s]+$/.test(val.trim());
