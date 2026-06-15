@@ -144,7 +144,10 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
     setGastosCaixaState({ ...GASTOS_VAZIO });
   }, [state.dadosImportados, pronto]);
 
-  // Salva no Supabase (debounced)
+  // Salva no Supabase (debounced).
+  // pronto é lido como guard mas não está nos deps: o save só deve disparar quando
+  // os valores debouncificados mudam, não quando pronto vira true (que ocorre logo
+  // após o load do Supabase, antes dos debounceds se atualizarem).
   useEffect(() => {
     const id = activeIdForSave.current;
     if (!id || !pronto) return;
@@ -163,7 +166,7 @@ export function DebitosProvider({ children }: { children: ReactNode }) {
       )
       .then(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedDevedores, debouncedGastosLideres, debouncedGastosCaixa, pronto]);
+  }, [debouncedDevedores, debouncedGastosLideres, debouncedGastosCaixa]);
 
   const salvar = useCallback(() => {
     const id = activeIdForSave.current;

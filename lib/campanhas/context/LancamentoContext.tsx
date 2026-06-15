@@ -81,11 +81,12 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
     dadosRef.current = null; // sentinel: baseline ainda não estabelecido para este acerto
     saveGenRef.current = 0;  // invalida saves pendentes do acerto anterior
 
-    if (!activeId) {
-      setInicializado(false);
-      setLancamentos([linhaVazia()]);
-      return;
-    }
+    // Reset imediato garante que o save effect não dispare com dados do acerto anterior
+    // enquanto o novo ainda está carregando (inicializado=false bloqueia o save)
+    setInicializado(false);
+    setLancamentos([linhaVazia()]);
+
+    if (!activeId) return;
 
     supabase
       .from("acerto_lancamentos")
