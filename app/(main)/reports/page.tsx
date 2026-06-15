@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Order, Shipment } from "@/lib/db";
-import { getOrders, getShipments } from "@/lib/supabase-db";
+import { getOrders, getShipments, getCampanhas, CampanhaDef } from "@/lib/supabase-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { PageNav } from "@/components/ui/page-nav";
 import { Printer, Camera, X } from "lucide-react";
 import { format, subDays } from "date-fns";
-import { CAMPO_MAP } from "@/lib/campos";
 import type { CampoId } from "@/lib/campos";
 import { useUserRole } from "@/lib/user-context";
 
@@ -29,6 +28,7 @@ export default function ReportsPage() {
   const { profileLoaded, refreshTick } = useUserRole();
   const [orders, setOrders] = useState<Order[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [campanhas, setCampanhas] = useState<CampanhaDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(default30);
   const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -42,9 +42,10 @@ export default function ReportsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [o, s] = await Promise.all([getOrders(), getShipments()]);
+      const [o, s, camp] = await Promise.all([getOrders(), getShipments(), getCampanhas()]);
       setOrders(o);
       setShipments(s);
+      setCampanhas(camp);
     } catch {
       alert("Erro ao carregar relatórios.");
     } finally {
@@ -64,13 +65,13 @@ export default function ReportsPage() {
         const d = shipment.shippingDate;
         if (startDate && d < new Date(startDate + "T00:00:00").getTime()) return false;
         if (endDate && d > new Date(endDate + "T23:59:59").getTime()) return false;
-        if (campoFilter !== "ALL" && CAMPO_MAP[order.campaignCode] !== (campoFilter as CampoId)) return false;
+        if (campoFilter !== "ALL" && campanhas.find(c => c.code === order.campaignCode)?.campo !== (campoFilter as CampoId)) return false;
         if (responsibleFilter !== "ALL" && order.responsible !== responsibleFilter) return false;
         if (tipoFilter !== "ALL" && order.tipo !== tipoFilter) return false;
         return true;
       })
       .sort((a, b) => b.shipment.shippingDate - a.shipment.shippingDate);
-  }, [orders, shipmentMap, startDate, endDate, campoFilter, responsibleFilter, tipoFilter]);
+  }, [orders, shipmentMap, campanhas, startDate, endDate, campoFilter, responsibleFilter, tipoFilter]);
 
   // reset página ao mudar filtros
   const prevFilters = useMemo(() => ({ startDate, endDate, campoFilter, responsibleFilter, tipoFilter }),
