@@ -4,6 +4,19 @@ Sistema web para controle de pedidos, separação de materiais, envios e relató
 
 ---
 
+## Documentação por módulo
+
+| Documento | Conteúdo |
+|-----------|----------|
+| [01 — Infraestrutura](docs/01-infraestrutura.md) | Contas, GitHub, Vercel, Supabase, ambiente local |
+| [02 — Pedidos](docs/02-pedidos.md) | Criar, separar, enviar, relatório |
+| [03 — Estoque](docs/03-estoque.md) | Catálogo, importação XLS, contagem física |
+| [04 — Campanhas e Acertos](docs/04-campanhas-acertos.md) | Acertos, lançamentos, escalas, bolsas, encerramento |
+| [05 — Fiorino](docs/05-fiorino.md) | Planejamento de carregamento |
+| [06 — Administração](docs/06-admin.md) | Usuários, campanhas, deploy, problemas comuns |
+
+---
+
 ## Visão Geral da Infraestrutura
 
 ```
