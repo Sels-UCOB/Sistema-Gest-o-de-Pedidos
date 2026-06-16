@@ -77,19 +77,33 @@ npm install
 | `shipments` | Envios agrupados |
 | `products` | Catálogo de produtos |
 | `inventory` | Estoque por depósito |
+| `config_global` | Configuração compartilhada — campanhas, tipos, campos, líderes |
+| `fiorino_plans` | Planos de carregamento do Fiorino (máx 5 por campo) |
+| `inventory_sessions` | Sessões de contagem de inventário físico |
+| `inventory_counts` | Registros individuais de contagem por item/sessão |
+| `acertos` | Acertos de campanha por campo |
+| `acerto_lancamentos` | Lançamentos financeiros por acerto |
+| `acerto_lider` | Dados do líder por acerto |
+| `acerto_debitos` | Débitos por acerto |
+| `acerto_bolsas` | Bolsas identificadas por acerto |
+| `acerto_anexos` | Anexos XLSX por acerto |
 
 ### Papéis de usuário
 
 | Papel | Acesso |
 |-------|--------|
-| `admin` | Acesso total — cria pedidos, gerencia usuários, vê todos os campos |
+| `admin` | Acesso total — cria pedidos, gerencia usuários e campanhas, vê todos os campos |
 | `operator` | Acesso restrito ao campo vinculado |
 
 ### Gerenciar usuários
 
-No próprio sistema (como admin): menu **Usuários** → alterar papel (`admin`/`operator`) e campo.
+No próprio sistema (como admin): menu **Administração** → alterar papel (`admin`/`operator`) e campo.
 
 Via Supabase (para criar ou deletar): painel → Authentication → Users.
+
+### Gerenciar campanhas
+
+No próprio sistema (como admin): menu **Administração** → card **Campanhas** → adicionar ou remover campanhas por campo (GO / MT / MS). As alterações são salvas imediatamente e refletem para todos os usuários sem necessidade de deploy.
 
 ---
 
