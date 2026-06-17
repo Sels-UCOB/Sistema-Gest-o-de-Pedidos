@@ -36,6 +36,8 @@ interface AcertosManagerContextValue {
   activeId: string | null;
   activeAcerto: AcertoMeta | null;
   loading: boolean;
+  loadError: string | null;
+  reload: () => void;
   createAcerto: (data: CriarAcertoData) => Promise<string>;
   updateAcerto: (id: string, data: Partial<Pick<AcertoMeta, "nome" | "campo" | "tipoCampanha" | "loteAASI">>) => Promise<void>;
   closeAcerto: (id: string, loteAASI?: number) => Promise<void>;
@@ -51,25 +53,37 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
   const [acertos, setAcertos] = useState<AcertoMeta[]>([]);
   const [activeId, setActiveIdState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
 
-  // Carrega lista do Supabase na montagem
+  const reload = useCallback(() => setReloadTick((t) => t + 1), []);
+
+  // Carrega lista do Supabase na montagem (e ao chamar reload)
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
 
     async function load() {
       const { data, error } = await supabase
         .from("acertos")
-        .select("*")
+        .select("id, nome, campo, tipo_campanha, status, data_criacao, data_encerramento, lote_aasi")
         .order("data_criacao", { ascending: true });
 
       if (cancelled) return;
-      if (!error && data) {
-        setAcertos(data.map(rowToMeta));
+
+      if (error) {
+        console.error("[AcertosManager] erro ao carregar acertos:", error);
+        setLoadError(error.message);
+        setLoading(false);
+        return;
       }
+
+      setAcertos(data.map(rowToMeta));
 
       // activeId vem do localStorage (preferência de UI, não dado)
       const saved = localStorage.getItem(ACTIVE_KEY);
-      if (saved && data?.some((a) => a.id === saved)) {
+      if (saved && data.some((a) => a.id === saved)) {
         setActiveIdState(saved);
       }
       setLoading(false);
@@ -77,7 +91,7 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
 
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadTick]);
 
   const setActiveAcerto = useCallback((id: string | null) => {
     setActiveIdState(id);
@@ -204,6 +218,8 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
         activeId,
         activeAcerto,
         loading,
+        loadError,
+        reload,
         createAcerto,
         updateAcerto,
         closeAcerto,
