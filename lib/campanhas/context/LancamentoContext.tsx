@@ -26,8 +26,7 @@ interface LancamentoContextValue {
 
 const LancamentoContext = createContext<LancamentoContextValue | null>(null);
 
-let _seq = 3000;
-const genId = () => `l${_seq++}`;
+const genId = () => crypto.randomUUID();
 
 const linhaVazia = (): Lancamento => ({
   id: genId(),
