@@ -35,8 +35,7 @@ interface DebitosContextValue {
 
 const DebitosContext = createContext<DebitosContextValue | null>(null);
 
-let _seq = 5000;
-const genId = () => `d${_seq++}`;
+const genId = () => crypto.randomUUID();
 
 const GASTOS_VAZIO: GastosLider = { gastos: 0, debitosAdicionais: [] };
 const gastosLideresVazio = () => [

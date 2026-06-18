@@ -27,14 +27,13 @@ interface ConfiguracaoContextValue {
   deleteCampo: (id: string) => void;
 
   initLideres: (nomes: string[]) => void;
-  updateLider: (id: string, parcial: Partial<Pick<LiderConfig, "subcontaLider" | "subcontaLucro">>) => void;
-  deleteLider: (id: string) => void;
+  updateLider: (nome: string, parcial: Partial<Pick<LiderConfig, "subcontaLider" | "subcontaLucro">>) => void;
+  deleteLider: (nome: string) => void;
 }
 
 const ConfiguracaoContext = createContext<ConfiguracaoContextValue | null>(null);
 
-let _seq = 200;
-const genId = () => String(_seq++);
+const genId = () => crypto.randomUUID();
 
 function useDebounce<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -68,7 +67,8 @@ export function ConfiguracaoProvider({ children }: { children: ReactNode }) {
         if (data) {
           if (Array.isArray(data.tipos) && data.tipos.length > 0) setTipos(data.tipos);
           if (Array.isArray(data.campos) && data.campos.length > 0) setCampos(data.campos);
-          if (Array.isArray(data.lideres)) setLideres(data.lideres);
+          if (Array.isArray(data.lideres))
+            setLideres(data.lideres.map((l: LiderConfig) => ({ ...l, id: l.id || genId() })));
         }
         setCarregado(true);
       });
@@ -115,23 +115,33 @@ export function ConfiguracaoProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const initLideres = useCallback((nomes: string[]) => {
+    const nomesValidos = nomes.filter(Boolean);
+    if (nomesValidos.length === 0) return;
     setLideres((prev) => {
-      const existentes = new Set(prev.map((l) => l.nome));
-      const novos = nomes.filter(Boolean).filter((n) => !existentes.has(n));
-      if (novos.length === 0) return prev;
-      return [...prev, ...novos.map((nome) => ({ id: genId(), nome, subcontaLider: "", subcontaLucro: "" }))];
+      // Garante IDs em entradas antigas sem eles (migração de dados)
+      let mudou = false;
+      const prevComIds = prev.map((l) => {
+        if (l.id) return l;
+        mudou = true;
+        return { ...l, id: genId() };
+      });
+      // Só adiciona nomes novos — nunca remove entradas existentes
+      const existentes = new Set(prevComIds.map((l) => l.nome));
+      const novos = nomesValidos.filter((n) => !existentes.has(n));
+      if (novos.length === 0 && !mudou) return prev;
+      return [...prevComIds, ...novos.map((nome) => ({ id: genId(), nome, subcontaLider: "", subcontaLucro: "" }))];
     });
   }, []);
 
   const updateLider = useCallback(
-    (id: string, parcial: Partial<Pick<LiderConfig, "subcontaLider" | "subcontaLucro">>) => {
-      setLideres((p) => p.map((l) => (l.id === id ? { ...l, ...parcial } : l)));
+    (nome: string, parcial: Partial<Pick<LiderConfig, "subcontaLider" | "subcontaLucro">>) => {
+      setLideres((p) => p.map((l) => (l.nome === nome ? { ...l, ...parcial } : l)));
     },
     []
   );
 
-  const deleteLider = useCallback((id: string) => {
-    setLideres((p) => p.filter((l) => l.id !== id));
+  const deleteLider = useCallback((nome: string) => {
+    setLideres((p) => p.filter((l) => l.nome !== nome));
   }, []);
 
   return (

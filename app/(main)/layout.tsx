@@ -139,6 +139,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       return data as Profile;
     };
 
+    let falhaNaRede = true;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const timeout = new Promise<never>((_, reject) =>
@@ -152,14 +153,15 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         const code = (e as { code?: string })?.code;
         // Erros definitivos: sem linha no banco ou sem permissão — não adianta retry
         if (code === "PGRST116" || code === "42501") {
-          console.warn("[profile] erro definitivo, abortando retry:", code);
+          console.warn("[profile] perfil não encontrado para userId:", userId, code);
+          falhaNaRede = false;
           break;
         }
         console.warn(`[profile] tentativa ${attempt + 1} falhou:`, e);
       }
       if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
     }
-    console.error("[profile] todas as tentativas falharam para userId:", userId);
+    if (falhaNaRede) console.error("[profile] todas as tentativas falharam para userId:", userId);
     return false;
   };
 
