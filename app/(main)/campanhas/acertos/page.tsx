@@ -27,6 +27,7 @@ export default function PainelAcertosPage() {
   const [modalAberto, setModalAberto] = useState(false);
   const [acertoParaEditar, setAcertoParaEditar] = useState<AcertoMeta | null>(null);
   const [bolsasGlobalAberto, setBolsasGlobalAberto] = useState(false);
+  const [opError, setOpError] = useState<string | null>(null);
 
   const acertosFiltrados = useMemo(() => {
     return acertos.filter((a) => {
@@ -40,16 +41,35 @@ export default function PainelAcertosPage() {
   }, [acertos, filtros]);
 
   const handleCriar = async (data: CriarAcertoData) => {
-    await createAcerto(data);
-    setModalAberto(false);
-    router.push("/campanhas");
+    try {
+      setOpError(null);
+      await createAcerto(data);
+      setModalAberto(false);
+      router.push("/campanhas");
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : "Erro ao criar acerto.");
+    }
   };
 
   const handleEditar = async (data: CriarAcertoData) => {
     if (!acertoParaEditar) return;
-    await updateAcerto(acertoParaEditar.id, data);
-    setAcertoParaEditar(null);
-    setModalAberto(false);
+    try {
+      setOpError(null);
+      await updateAcerto(acertoParaEditar.id, data);
+      setAcertoParaEditar(null);
+      setModalAberto(false);
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : "Erro ao salvar acerto.");
+    }
+  };
+
+  const handleExcluir = async (a: AcertoMeta) => {
+    try {
+      setOpError(null);
+      await deleteAcerto(a.id);
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : "Erro ao excluir acerto.");
+    }
   };
 
   const handleEntrar = (acerto: AcertoMeta) => {
@@ -103,6 +123,19 @@ export default function PainelAcertosPage() {
 
   return (
     <div className="space-y-6">
+      {opError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <p className="text-sm text-red-400">{opError}</p>
+          <button
+            type="button"
+            onClick={() => setOpError(null)}
+            className="text-red-400 hover:text-red-300 text-xs shrink-0"
+          >
+            Fechar
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -151,7 +184,7 @@ export default function PainelAcertosPage() {
         activeId={activeId}
         onEntrar={handleEntrar}
         onEditar={handleAbrirEditar}
-        onExcluir={(a) => deleteAcerto(a.id)}
+        onExcluir={handleExcluir}
       />
 
       {bolsasGlobalAberto && (

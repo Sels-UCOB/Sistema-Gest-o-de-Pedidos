@@ -11,6 +11,7 @@ import {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import type { AcertoMeta, CriarAcertoData, FiltrosAcerto, StatusAcerto } from "@/lib/campanhas/types/acertoManager";
+import { campoToRegiao } from "@/lib/campanhas/types/acertoManager";
 
 const ACTIVE_KEY = "acertos_active_v1";
 
@@ -23,6 +24,7 @@ function rowToMeta(row: Record<string, unknown>): AcertoMeta {
     id: row.id as string,
     nome: row.nome as string,
     campo: row.campo as string,
+    regiao: (row.campo_regiao as string | undefined) ?? campoToRegiao(row.campo as string),
     tipoCampanha: row.tipo_campanha as string,
     dataCriacao: row.data_criacao as string,
     status: row.status as StatusAcerto,
@@ -67,7 +69,7 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
     async function load() {
       const { data, error } = await supabase
         .from("acertos")
-        .select("id, nome, campo, tipo_campanha, status, data_criacao, data_encerramento, lote_aasi")
+        .select("id, nome, campo, campo_regiao, tipo_campanha, status, data_criacao, data_encerramento, lote_aasi")
         .order("data_criacao", { ascending: true });
 
       if (cancelled) return;
@@ -106,10 +108,13 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
     const id = genId();
     const now = new Date().toISOString();
 
+    const regiao = campoToRegiao(data.campo);
+
     const { error } = await supabase.from("acertos").insert({
       id,
       nome: data.nome.trim(),
       campo: data.campo,
+      campo_regiao: regiao,
       tipo_campanha: data.tipoCampanha,
       status: "Criado",
       data_criacao: now,
@@ -121,6 +126,7 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
       id,
       nome: data.nome.trim(),
       campo: data.campo,
+      regiao,
       tipoCampanha: data.tipoCampanha,
       dataCriacao: now,
       status: "Criado",
@@ -137,14 +143,22 @@ export function AcertosManagerProvider({ children }: { children: ReactNode }) {
   ) => {
     const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (data.nome !== undefined) payload.nome = data.nome.trim();
-    if (data.campo !== undefined) payload.campo = data.campo;
+    if (data.campo !== undefined) {
+      payload.campo = data.campo;
+      payload.campo_regiao = campoToRegiao(data.campo);
+    }
     if (data.tipoCampanha !== undefined) payload.tipo_campanha = data.tipoCampanha;
     if (data.loteAASI !== undefined) payload.lote_aasi = data.loteAASI;
 
     const { error } = await supabase.from("acertos").update(payload).eq("id", id);
     if (error) throw error;
 
-    setAcertos((prev) => prev.map((a) => (a.id === id ? { ...a, ...data } : a)));
+    setAcertos((prev) => prev.map((a) => {
+      if (a.id !== id) return a;
+      const updated = { ...a, ...data };
+      if (data.campo !== undefined) updated.regiao = campoToRegiao(data.campo);
+      return updated;
+    }));
   }, []);
 
   const closeAcerto = useCallback(async (id: string, loteAASI?: number) => {
