@@ -20,7 +20,7 @@ const FILTROS_INICIAIS: FiltrosAcerto = {
 
 export default function PainelAcertosPage() {
   const router = useRouter();
-  const { acertos, activeId, createAcerto, updateAcerto, deleteAcerto, setActiveAcerto } =
+  const { acertos, activeId, createAcerto, updateAcerto, deleteAcerto, setActiveAcerto, loadError, reload, loading } =
     useAcertosManager();
 
   const [filtros, setFiltros] = useState<FiltrosAcerto>(FILTROS_INICIAIS);
@@ -75,6 +75,31 @@ export default function PainelAcertosPage() {
     }),
     [acertos]
   );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-6 h-6 border-2 border-[#6C63FF] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
+        <p className="text-sm text-red-400 max-w-md">
+          Erro ao carregar acertos: <span className="font-mono">{loadError}</span>
+        </p>
+        <button
+          type="button"
+          onClick={reload}
+          className="px-4 py-2 rounded-xl bg-[#6C63FF] text-white text-sm font-medium hover:bg-[#5A52E8] transition-colors"
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

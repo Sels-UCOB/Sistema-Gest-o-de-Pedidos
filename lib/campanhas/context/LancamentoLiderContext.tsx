@@ -43,6 +43,7 @@ export function LancamentoLiderProvider({ children }: { children: ReactNode }) {
   const [jurosCampanha, setJurosCampanhaState] = useState<number | null>(null);
   const lastActiveIdRef = useRef<string | null | undefined>(undefined);
   const activeIdForSave = useRef(activeId);
+  const loadingRef = useRef(false);
 
   const debouncedCarta = useDebounce(cartaBolsa, 600);
   const debouncedJuros = useDebounce(jurosCampanha, 600);
@@ -54,10 +55,13 @@ export function LancamentoLiderProvider({ children }: { children: ReactNode }) {
     activeIdForSave.current = activeId;
 
     if (!activeId) {
+      loadingRef.current = false;
       setCartaBolsa(CARTA_INICIAL);
       setJurosCampanhaState(null);
       return;
     }
+
+    loadingRef.current = true;
 
     supabase
       .from("acerto_lider")
@@ -66,6 +70,7 @@ export function LancamentoLiderProvider({ children }: { children: ReactNode }) {
       .maybeSingle()
       .then(({ data }) => {
         if (activeIdForSave.current !== activeId) return;
+        loadingRef.current = false;
         if (data) {
           setCartaBolsa(data.carta_bolsa ?? CARTA_INICIAL);
           setJurosCampanhaState(data.juros_campanha ?? null);
@@ -76,10 +81,12 @@ export function LancamentoLiderProvider({ children }: { children: ReactNode }) {
       });
   }, [activeId]);
 
-  // Salva no Supabase (debounced)
+  // Salva no Supabase (debounced).
+  // loadingRef impede que o debounce dispare com dados do acerto anterior
+  // enquanto o novo ainda está carregando.
   useEffect(() => {
     const id = activeIdForSave.current;
-    if (!id) return;
+    if (!id || loadingRef.current) return;
 
     supabase
       .from("acerto_lider")

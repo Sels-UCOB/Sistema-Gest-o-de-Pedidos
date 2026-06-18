@@ -46,6 +46,7 @@ export function AcertoProvider({ children }: { children: ReactNode }) {
   const lastActiveIdRef = useRef<string | null | undefined>(undefined);
   const debouncedState = useDebounce(state, 600);
   const activeIdForSave = useRef(activeId);
+  const loadingRef = useRef(false);
 
   // Carrega do Supabase quando o acerto ativo muda
   useEffect(() => {
@@ -53,14 +54,16 @@ export function AcertoProvider({ children }: { children: ReactNode }) {
     lastActiveIdRef.current = activeId;
     activeIdForSave.current = activeId;
 
+    // Reset completo evita que a config do acerto anterior vaze para o novo
+    // via debounce enquanto o Supabase ainda não respondeu
+    setState(ESTADO_INICIAL);
+
     if (!activeId) {
-      setState(ESTADO_INICIAL);
+      loadingRef.current = false;
       return;
     }
 
-    // Zera dadosImportados imediatamente para que LancamentoContext não confunda
-    // o carregamento do novo acerto com uma re-importação manual
-    setState((s) => ({ ...s, dadosImportados: null }));
+    loadingRef.current = true;
 
     supabase
       .from("acerto_state")
@@ -69,6 +72,7 @@ export function AcertoProvider({ children }: { children: ReactNode }) {
       .maybeSingle()
       .then(({ data }) => {
         if (activeIdForSave.current !== activeId) return;
+        loadingRef.current = false;
         if (data) {
           setState({
             dadosImportados: data.dados_importados ?? null,
@@ -80,10 +84,12 @@ export function AcertoProvider({ children }: { children: ReactNode }) {
       });
   }, [activeId]);
 
-  // Salva no Supabase (com debounce) quando estado muda
+  // Salva no Supabase (com debounce) quando estado muda.
+  // loadingRef impede que o debounce dispare com estado do acerto anterior
+  // enquanto o novo ainda não foi carregado do Supabase.
   useEffect(() => {
     const id = activeIdForSave.current;
-    if (!id) return;
+    if (!id || loadingRef.current) return;
 
     supabase
       .from("acerto_state")

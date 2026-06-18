@@ -1,13 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle, AlertTriangle } from "lucide-react";
+import { CheckCircle, AlertTriangle, ClipboardList } from "lucide-react";
 import { useAcertosManagerOptional } from "@/lib/campanhas/context/AcertosManagerContext";
 
-export function BotaoEncerrar() {
+interface Props {
+  checklistCompleto: boolean;
+}
+
+export function BotaoEncerrar({ checklistCompleto }: Props) {
   const manager = useAcertosManagerOptional();
   const [confirmando, setConfirmando] = useState(false);
   const [lote, setLote] = useState<string>("");
+  const [tentouEncerrar, setTentouEncerrar] = useState(false);
 
   if (!manager) return null;
   const { activeId, activeAcerto, closeAcerto, updateAcerto } = manager;
@@ -101,13 +106,34 @@ export function BotaoEncerrar() {
           onChange={(e) => setLote(e.target.value)}
         />
       </div>
-      <button
-        type="button"
-        className="px-4 py-2 rounded-xl text-sm font-medium bg-green-500/15 text-green-400 hover:bg-green-500/25 border border-green-500/20 transition-colors"
-        onClick={() => setConfirmando(true)}
-      >
-        Encerrar Acerto
-      </button>
+
+      <div className="flex flex-col items-start gap-2">
+        <button
+          type="button"
+          className={`px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
+            checklistCompleto
+              ? "bg-green-500/15 text-green-400 hover:bg-green-500/25 border-green-500/20"
+              : "bg-[#2A2F45]/50 text-[#4A4F6A] border-[#2A2F45] cursor-not-allowed"
+          }`}
+          onClick={() => {
+            if (!checklistCompleto) {
+              setTentouEncerrar(true);
+              return;
+            }
+            setTentouEncerrar(false);
+            setConfirmando(true);
+          }}
+        >
+          Encerrar Acerto
+        </button>
+
+        {tentouEncerrar && !checklistCompleto && (
+          <div className="flex items-center gap-1.5 text-xs text-amber-400">
+            <ClipboardList className="w-3.5 h-3.5 shrink-0" />
+            <span>É necessário completar todo o checklist antes de encerrar o acerto.</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -181,30 +181,47 @@ export async function loadBolsaFromReport(acertoId: string): Promise<{
     removed = toRemove.length;
   }
 
-  // Inserir ou atualizar registros do relatório
+  // Separar em lotes: atualizações e inserções
+  const now = new Date().toISOString();
+  const toUpsert: Record<string, unknown>[] = [];
+  const toInsert: Record<string, unknown>[] = [];
   let inserted = 0;
+
   for (const col of reportData.colportores) {
     const nomeLower = col.nome.toLowerCase();
     const ativo = existingAuto.find((b) => b.nome.toLowerCase() === nomeLower && !b.removido);
     const dados = { headers: extraHeaders, colunas: col.colunas };
 
     if (ativo) {
-      await supabase
-        .from("acerto_bolsas")
-        .update({ dados, updated_at: new Date().toISOString() })
-        .eq("id", ativo.id);
+      toUpsert.push({
+        id: ativo.id,
+        acerto_id: ativo.acerto_id,
+        nome: ativo.nome,
+        dados,
+        origem: "AUTO",
+        removido: false,
+        updated_at: now,
+      });
     } else {
       // Não reativar registros que foram removidos manualmente
       const foiRemovidoManualmente = existingAuto.some(
         (b) => b.nome.toLowerCase() === nomeLower && b.removido
       );
       if (!foiRemovidoManualmente) {
-        await supabase
-          .from("acerto_bolsas")
-          .insert({ acerto_id: acertoId, nome: col.nome, dados, origem: "AUTO", removido: false });
+        toInsert.push({ acerto_id: acertoId, nome: col.nome, dados, origem: "AUTO", removido: false });
         inserted++;
       }
     }
+  }
+
+  if (toUpsert.length > 0) {
+    const { error } = await supabase.from("acerto_bolsas").upsert(toUpsert, { onConflict: "id" });
+    if (error) throw error;
+  }
+
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from("acerto_bolsas").insert(toInsert);
+    if (error) throw error;
   }
 
   return { headers: reportData.headers, inserted, removed };

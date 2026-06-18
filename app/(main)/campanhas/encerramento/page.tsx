@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { ResumoCampanha } from "@/components/campanhas/encerramento/ResumoCampanha";
 import { ResumoLideresTabela } from "@/components/campanhas/encerramento/ResumoLideresTabela";
@@ -6,8 +6,16 @@ import { DiferencaCaixa } from "@/components/campanhas/encerramento/DiferencaCai
 import { BotaoGerarCSV } from "@/components/campanhas/encerramento/BotaoGerarCSV";
 import { BotoesExportarPDF } from "@/components/campanhas/encerramento/BotoesExportarPDF";
 import { BotaoEncerrar } from "@/components/campanhas/encerramento/BotaoEncerrar";
+import { ChecklistEncerramento } from "@/components/campanhas/encerramento/ChecklistEncerramento";
+import { useAcertosManager } from "@/lib/campanhas/context/AcertosManagerContext";
+import { useAcertoChecklist } from "@/lib/campanhas/hooks/useAcertoChecklist";
 
 export default function EncerramentoPage() {
+  const { activeId, activeAcerto } = useAcertosManager();
+  const { itens, loading, todosMarcados, progresso, toggleItem } = useAcertoChecklist(activeId);
+
+  const encerrado = activeAcerto?.status === "Encerrado";
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -25,7 +33,15 @@ export default function EncerramentoPage() {
         <ResumoCampanha />
         <ResumoLideresTabela />
         <DiferencaCaixa />
-        <BotaoEncerrar />
+        <ChecklistEncerramento
+          itens={itens}
+          loading={loading}
+          todosMarcados={todosMarcados}
+          progresso={progresso}
+          onToggle={toggleItem}
+          encerrado={encerrado}
+        />
+        <BotaoEncerrar checklistCompleto={todosMarcados} />
       </div>
     </div>
   );
