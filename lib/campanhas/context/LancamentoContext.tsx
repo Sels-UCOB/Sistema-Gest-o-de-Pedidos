@@ -72,9 +72,37 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
   const dadosRef = useRef<typeof state.dadosImportados | null>(null);
   const saveGenRef = useRef(0);
 
+  // Refs que sempre refletem o estado mais recente — usados no efeito de troca de acerto
+  // sem criar dependências circulares
+  const lancamentosRef = useRef(lancamentos);
+  lancamentosRef.current = lancamentos;
+  const inicializadoRef = useRef(inicializado);
+  inicializadoRef.current = inicializado;
+
   // Carrega do Supabase quando o acerto ativo muda
   useEffect(() => {
     if (lastActiveIdRef.current === activeId) return;
+
+    // Persiste o acerto anterior ANTES de trocar, para não perder dados em trânsito.
+    // A verificação dentro do .then usa o id capturado (oldId) — nunca conflita com
+    // o novo acerto porque cada delete filtra pelo seu próprio acerto_id.
+    const oldId = lastActiveIdRef.current;
+    if (oldId && inicializadoRef.current) {
+      const rows = lancamentosToRows(oldId, lancamentosRef.current);
+      supabase
+        .from("acerto_lancamentos")
+        .delete()
+        .eq("acerto_id", oldId)
+        .then(({ error }) => {
+          if (error) { console.error("[lancamentos] erro ao salvar ao trocar acerto:", error); return; }
+          if (rows.length > 0) {
+            supabase.from("acerto_lancamentos").insert(rows).then(({ error: e }) => {
+              if (e) console.error("[lancamentos] erro ao inserir ao trocar acerto:", e);
+            });
+          }
+        });
+    }
+
     lastActiveIdRef.current = activeId;
     activeIdForSave.current = activeId;
     dadosRef.current = null; // sentinel: baseline ainda não estabelecido para este acerto
@@ -92,7 +120,8 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
       .select("*")
       .eq("acerto_id", activeId)
       .order("posicao", { ascending: true })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) console.error("[lancamentos] erro ao carregar acerto:", activeId, error);
         if (activeIdForSave.current !== activeId) return;
         if (data && data.length > 0) {
           setLancamentos(data.map(rowToLancamento));
@@ -184,8 +213,10 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
   }, [state.dadosImportados, inicializado]);
 
   // Persiste no Supabase sempre que a lista muda (após inicialização).
-  // Usa gerador de versão para cancelar saves obsoletos: se o usuário edita
-  // rapidamente, apenas o último delete+insert completa o insert.
+  // Usa gerador de versão para cancelar saves obsoletos dentro do mesmo acerto.
+  // IMPORTANTE: o gen-check só se aplica quando ainda estamos no mesmo acerto (activeIdForSave === id).
+  // Se o acerto trocou entre o delete e o insert, o insert deve sempre completar —
+  // caso contrário o delete apaga os dados e o insert é cancelado → perda de dados.
   useEffect(() => {
     const id = activeIdForSave.current;
     if (!id || !inicializado) return;
@@ -197,10 +228,15 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
       .from("acerto_lancamentos")
       .delete()
       .eq("acerto_id", id)
-      .then(() => {
-        if (saveGenRef.current !== gen) return; // save mais recente já substituiu este
+      .then(({ error }) => {
+        if (error) { console.error("[lancamentos] erro no delete (auto-save):", error); return; }
+        // Cancela somente se ainda estamos no mesmo acerto E um save mais recente substituiu este.
+        // Se o acerto mudou, sempre completa o insert para não perder dados do acerto anterior.
+        if (activeIdForSave.current === id && saveGenRef.current !== gen) return;
         if (rows.length > 0) {
-          supabase.from("acerto_lancamentos").insert(rows).then(() => {});
+          supabase.from("acerto_lancamentos").insert(rows).then(({ error: e }) => {
+            if (e) console.error("[lancamentos] erro no insert (auto-save):", e);
+          });
         }
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,10 +254,12 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
     if (!id) return;
     const gen = ++saveGenRef.current;
     const rows = lancamentosToRows(id, lancamentos);
-    await supabase.from("acerto_lancamentos").delete().eq("acerto_id", id);
-    if (saveGenRef.current !== gen) return;
+    const { error: delErr } = await supabase.from("acerto_lancamentos").delete().eq("acerto_id", id);
+    if (delErr) { console.error("[lancamentos] erro no delete (salvar):", delErr); return; }
+    if (activeIdForSave.current === id && saveGenRef.current !== gen) return;
     if (rows.length > 0) {
-      await supabase.from("acerto_lancamentos").insert(rows);
+      const { error: insErr } = await supabase.from("acerto_lancamentos").insert(rows);
+      if (insErr) console.error("[lancamentos] erro no insert (salvar):", insErr);
     }
   }, [lancamentos]);
 
