@@ -1,10 +1,11 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import type { AcertoMeta, CriarAcertoData } from "@/lib/campanhas/types/acertoManager";
+import { TODOS_CAMPOS, CAMPOS_POR_REGIAO } from "@/lib/campanhas/types/acertoManager";
+import { useUserRole } from "@/lib/user-context";
 
-const CAMPOS = ["ALM", "AOM", "ASM", "ABC", "APLAC", "MTO", "IDEC", "Outro"] as const;
 const TIPOS_CAMPANHA = ["Sonhando Alto 1", "Sonhando Alto 2", "Verão", "Inverno", "Outro"] as const;
 
 const inputCls = "w-full rounded-lg bg-[#0F1117] border border-[#2A2F45] text-white text-sm px-3 py-2 focus:outline-none focus:border-[#6C63FF] transition-colors placeholder:text-[#8B8FA8]/50";
@@ -18,8 +19,16 @@ interface Props {
 }
 
 export function ModalCriarAcerto({ onClose, onSalvar, dadosIniciais, modoEdicao }: Props) {
+  const { isAdmin, campo: campoUsuario } = useUserRole();
+
+  const camposDisponiveis: readonly string[] = isAdmin
+    ? TODOS_CAMPOS
+    : (campoUsuario ? (CAMPOS_POR_REGIAO[campoUsuario] ?? TODOS_CAMPOS) : TODOS_CAMPOS);
+
+  const defaultCampo = dadosIniciais?.campo ?? camposDisponiveis[0] ?? "AOM";
+
   const [nome, setNome] = useState(dadosIniciais?.nome ?? "");
-  const [campo, setCampo] = useState(dadosIniciais?.campo ?? "AOM");
+  const [campo, setCampo] = useState(defaultCampo);
   const [tipoCampanha, setTipoCampanha] = useState(dadosIniciais?.tipoCampanha ?? "Sonhando Alto 1");
 
   useEffect(() => {
@@ -67,8 +76,14 @@ export function ModalCriarAcerto({ onClose, onSalvar, dadosIniciais, modoEdicao 
 
           <div>
             <label htmlFor="acerto-campo" className={labelCls}>Campo</label>
-            <select id="acerto-campo" className={inputCls} value={campo} onChange={(e) => setCampo(e.target.value)}>
-              {CAMPOS.map((c) => <option key={c} value={c}>{c}</option>)}
+            <select
+              id="acerto-campo"
+              className={inputCls}
+              value={campo}
+              onChange={(e) => setCampo(e.target.value)}
+              disabled={!isAdmin && camposDisponiveis.length === 1}
+            >
+              {camposDisponiveis.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
 
