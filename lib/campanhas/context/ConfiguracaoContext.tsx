@@ -64,7 +64,7 @@ export function ConfiguracaoProvider({ children }: { children: ReactNode }) {
       .eq("id", 1)
       .maybeSingle()
       .then(({ data, error }) => {
-        if (error) console.error("[config] erro ao carregar configuração global:", error);
+        if (error) console.error("[config] erro ao carregar configuração global:", error.message, error.code, error.details);
         if (data) {
           if (Array.isArray(data.tipos) && data.tipos.length > 0) setTipos(data.tipos);
           if (Array.isArray(data.campos) && data.campos.length > 0) setCampos(data.campos);

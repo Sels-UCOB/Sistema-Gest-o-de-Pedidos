@@ -15,9 +15,12 @@ import { useAcerto } from "@/lib/campanhas/context/AcertoContext";
 import { useConfiguracao } from "@/lib/campanhas/context/ConfiguracaoContext";
 import { useAcertosManagerOptional } from "@/lib/campanhas/context/AcertosManagerContext";
 
+export type AcertoTransitionState = "idle" | "salvando" | "carregando";
+
 interface LancamentoContextValue {
   lancamentos: Lancamento[];
   encerrado: boolean;
+  transitionState: AcertoTransitionState;
   addLancamento: () => void;
   updateLancamento: (id: string, parcial: Partial<Omit<Lancamento, "id">>) => void;
   removeLancamento: (id: string) => void;
@@ -58,6 +61,15 @@ function rowToLancamento(row: Record<string, unknown>): Lancamento {
   };
 }
 
+function useDebounce<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
+}
+
 export function LancamentoProvider({ children }: { children: ReactNode }) {
   const { state } = useAcerto();
   const { tipos } = useConfiguracao();
@@ -67,73 +79,101 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
 
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [inicializado, setInicializado] = useState(false);
+  const [transitionState, setTransitionState] = useState<AcertoTransitionState>("idle");
+
   const lastActiveIdRef = useRef<string | null | undefined>(undefined);
   const activeIdForSave = useRef(activeId);
   const dadosRef = useRef<typeof state.dadosImportados | null>(null);
   const saveGenRef = useRef(0);
+  // True durante toda a transição (save → load): bloqueia o auto-save debounced
+  const isSwitchingRef = useRef(false);
 
-  // Refs que sempre refletem o estado mais recente — usados no efeito de troca de acerto
-  // sem criar dependências circulares
+  // Refs que sempre refletem o estado mais recente — acessíveis em closures async
   const lancamentosRef = useRef(lancamentos);
   lancamentosRef.current = lancamentos;
   const inicializadoRef = useRef(inicializado);
   inicializadoRef.current = inicializado;
 
-  // Carrega do Supabase quando o acerto ativo muda
+  // Auto-save com debounce de 1.5s após a última alteração.
+  // Bloqueado durante a transição de acerto para evitar race conditions.
+  const debouncedLancamentos = useDebounce(lancamentos, 1500);
+
+  // ─── Troca de acerto: save (bloqueante) → load (bloqueante) ─────────────────
+  // O switch é sequencial e assíncrono. A UI mostra o estado via transitionState.
+  // Enquanto isSwitchingRef.current = true, o auto-save debounced não dispara.
   useEffect(() => {
     if (lastActiveIdRef.current === activeId) return;
 
-    // Persiste o acerto anterior ANTES de trocar, para não perder dados em trânsito.
-    // A verificação dentro do .then usa o id capturado (oldId) — nunca conflita com
-    // o novo acerto porque cada delete filtra pelo seu próprio acerto_id.
     const oldId = lastActiveIdRef.current;
-    if (oldId && inicializadoRef.current) {
-      const rows = lancamentosToRows(oldId, lancamentosRef.current);
-      supabase
-        .from("acerto_lancamentos")
-        .delete()
-        .eq("acerto_id", oldId)
-        .then(({ error }) => {
-          if (error) { console.error("[lancamentos] erro ao salvar ao trocar acerto:", error); return; }
-          if (rows.length > 0) {
-            supabase.from("acerto_lancamentos").insert(rows).then(({ error: e }) => {
-              if (e) console.error("[lancamentos] erro ao inserir ao trocar acerto:", e);
-            });
-          }
-        });
-    }
-
     lastActiveIdRef.current = activeId;
-    activeIdForSave.current = activeId;
-    dadosRef.current = null; // sentinel: baseline ainda não estabelecido para este acerto
-    saveGenRef.current = 0;  // invalida saves pendentes do acerto anterior
+    isSwitchingRef.current = true;
 
-    // Reset imediato garante que o save effect não dispare com dados do acerto anterior
-    // enquanto o novo ainda está carregando (inicializado=false bloqueia o save)
-    setInicializado(false);
-    setLancamentos([linhaVazia()]);
-
-    if (!activeId) return;
-
-    supabase
-      .from("acerto_lancamentos")
-      .select("*")
-      .eq("acerto_id", activeId)
-      .order("posicao", { ascending: true })
-      .then(({ data, error }) => {
-        if (error) console.error("[lancamentos] erro ao carregar acerto:", activeId, error);
-        if (activeIdForSave.current !== activeId) return;
-        if (data && data.length > 0) {
-          setLancamentos(data.map(rowToLancamento));
-          setInicializado(true);
-        } else {
-          setInicializado(false);
-          setLancamentos([linhaVazia()]);
+    const doSwitch = async () => {
+      // Fase 1: persiste o acerto anterior antes de sair
+      if (oldId && inicializadoRef.current) {
+        setTransitionState("salvando");
+        const rows = lancamentosToRows(oldId, lancamentosRef.current);
+        const { error: delErr } = await supabase
+          .from("acerto_lancamentos")
+          .delete()
+          .eq("acerto_id", oldId);
+        if (delErr) {
+          console.error("[lancamentos] erro ao salvar ao trocar acerto:", delErr);
+        } else if (rows.length > 0) {
+          const { error: insErr } = await supabase
+            .from("acerto_lancamentos")
+            .insert(rows);
+          if (insErr) console.error("[lancamentos] erro ao inserir ao trocar acerto:", insErr);
         }
-      });
+      }
+
+      // Fase 2: reseta o estado local
+      activeIdForSave.current = activeId;
+      dadosRef.current = null;
+      saveGenRef.current = 0;
+      setInicializado(false);
+      setLancamentos([linhaVazia()]);
+
+      if (!activeId) {
+        isSwitchingRef.current = false;
+        setTransitionState("idle");
+        return;
+      }
+
+      // Fase 3: carrega o novo acerto
+      setTransitionState("carregando");
+      const { data, error } = await supabase
+        .from("acerto_lancamentos")
+        .select("*")
+        .eq("acerto_id", activeId)
+        .order("posicao", { ascending: true });
+
+      if (error) console.error("[lancamentos] erro ao carregar acerto:", activeId, error);
+
+      // Guarda se outro switch aconteceu enquanto carregávamos
+      if (activeIdForSave.current !== activeId) {
+        isSwitchingRef.current = false;
+        setTransitionState("idle");
+        return;
+      }
+
+      if (data && data.length > 0) {
+        setLancamentos(data.map(rowToLancamento));
+        setInicializado(true);
+      } else {
+        setInicializado(false);
+        setLancamentos([linhaVazia()]);
+      }
+
+      isSwitchingRef.current = false;
+      setTransitionState("idle");
+    };
+
+    doSwitch();
   }, [activeId]);
 
-  // Inicializa a partir dos dados importados quando não há dados no Supabase
+  // ─── Inicialização a partir dos dados importados ─────────────────────────────
+  // Fallback quando o Supabase não retorna dados para o acerto (novo acerto).
   useEffect(() => {
     if (inicializado) return;
     const tipoLucro = tipos.find((t) => t.nome === "Lucro");
@@ -158,42 +198,35 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
     setLancamentos(linhas);
   }, [inicializado, state.dadosImportados, tipos]);
 
-  // Detecta re-importação dentro do mesmo acerto e reseta.
-  // Usa sentinel null: enquanto dadosRef.current === null apenas estabelece o baseline
-  // (carregamento inicial do acerto), sem resetar lançamentos.
+  // ─── Detecta re-importação dentro do mesmo acerto ────────────────────────────
   useEffect(() => {
     if (!inicializado) return;
     if (!state.dadosImportados) return;
 
     if (dadosRef.current === null) {
-      // Primeira vez que dados chegam para este acerto — apenas fixa o baseline
       dadosRef.current = state.dadosImportados;
       return;
     }
 
     if (state.dadosImportados === dadosRef.current) return;
 
-    // Captura nomes do import anterior antes de atualizar o ref
     const previousImport = dadosRef.current;
     dadosRef.current = state.dadosImportados;
 
     const tipoLucroId = tipos.find((t) => t.nome === "Lucro")?.id ?? "";
     const dados = state.dadosImportados;
 
-    // Nomes de colportores que vieram do import anterior (essas linhas serão substituídas)
     const nomesDoImportAnterior = new Set(
       previousImport?.nomes.filter((_, idx) => (previousImport.saldos[idx] ?? 0) > 0) ?? []
     );
 
     setLancamentos((prev) => {
-      // Mantém: linhas não-lucro e lucros que NÃO vieram do import anterior (manuais)
       const mantidas = prev.filter((l) => {
         if (l.tipoLancamentoId !== tipoLucroId) return true;
         if (!l.historico) return true;
         return !nomesDoImportAnterior.has(l.historico);
       });
 
-      // Linhas do novo import
       const novas: Lancamento[] = [];
       dados.nomes.forEach((nome, idx) => {
         if (dados.saldos[idx] > 0) {
@@ -212,17 +245,18 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.dadosImportados, inicializado]);
 
-  // Persiste no Supabase sempre que a lista muda (após inicialização).
-  // Usa gerador de versão para cancelar saves obsoletos dentro do mesmo acerto.
-  // IMPORTANTE: o gen-check só se aplica quando ainda estamos no mesmo acerto (activeIdForSave === id).
-  // Se o acerto trocou entre o delete e o insert, o insert deve sempre completar —
-  // caso contrário o delete apaga os dados e o insert é cancelado → perda de dados.
+  // ─── Auto-save debounced ─────────────────────────────────────────────────────
+  // Dispara 1.5s após a última alteração. Bloqueado durante troca de acerto
+  // (isSwitchingRef.current) para não conflitar com o save-before-switch.
+  // Gen-check cancela apenas saves do mesmo acerto quando um mais recente existe;
+  // se o acerto trocou (activeIdForSave !== id), o insert sempre completa para
+  // não deixar dados apagados sem reinserção.
   useEffect(() => {
     const id = activeIdForSave.current;
-    if (!id || !inicializado) return;
+    if (!id || !inicializado || isSwitchingRef.current) return;
 
     const gen = ++saveGenRef.current;
-    const rows = lancamentosToRows(id, lancamentos);
+    const rows = lancamentosToRows(id, debouncedLancamentos);
 
     supabase
       .from("acerto_lancamentos")
@@ -230,8 +264,6 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
       .eq("acerto_id", id)
       .then(({ error }) => {
         if (error) { console.error("[lancamentos] erro no delete (auto-save):", error); return; }
-        // Cancela somente se ainda estamos no mesmo acerto E um save mais recente substituiu este.
-        // Se o acerto mudou, sempre completa o insert para não perder dados do acerto anterior.
         if (activeIdForSave.current === id && saveGenRef.current !== gen) return;
         if (rows.length > 0) {
           supabase.from("acerto_lancamentos").insert(rows).then(({ error: e }) => {
@@ -240,7 +272,7 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
         }
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lancamentos, inicializado]);
+  }, [debouncedLancamentos, inicializado]);
 
   // Marca "Em Aberto" ao primeiro lançamento preenchido
   useEffect(() => {
@@ -290,7 +322,7 @@ export function LancamentoProvider({ children }: { children: ReactNode }) {
 
   return (
     <LancamentoContext.Provider
-      value={{ lancamentos, encerrado, addLancamento, updateLancamento, removeLancamento, salvar }}
+      value={{ lancamentos, encerrado, transitionState, addLancamento, updateLancamento, removeLancamento, salvar }}
     >
       {children}
     </LancamentoContext.Provider>
