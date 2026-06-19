@@ -43,7 +43,8 @@ export function BotaoGerarCSV() {
     if (faltando.length > 0) { setPendencias(faltando); return; }
 
     const csv = gerarCSVContabil({ lancamentos, tipos, lideresConfig, campos, config: state.config, cartaBolsa, jurosCampanha, devedores, gastosLideres, gastosCaixa, dadosImportados: state.dadosImportados });
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const bytes = Uint8Array.from(csv, (c) => { const n = c.charCodeAt(0); return n > 255 ? 63 : n; });
+    const blob = new Blob([bytes], { type: "text/csv;charset=windows-1252;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
