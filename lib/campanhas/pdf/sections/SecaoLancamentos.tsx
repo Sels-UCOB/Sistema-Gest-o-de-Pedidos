@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import { View, Text } from "@react-pdf/renderer";
 import { s } from "../styles";
 import { formatarBRL } from "@/lib/campanhas/parseRelatorioSaldo";
@@ -8,9 +8,16 @@ import type { DadosPDF } from "../types";
 interface Props {
   dados: DadosPDF;
   somenteFpcCampo?: boolean;
+  ocultarSaldoInicial?: boolean;
+  ocultarColunaSaldo?: boolean;
 }
 
-export function SecaoLancamentos({ dados, somenteFpcCampo = false }: Props) {
+export function SecaoLancamentos({
+  dados,
+  somenteFpcCampo = false,
+  ocultarSaldoInicial = false,
+  ocultarColunaSaldo = false,
+}: Props) {
   const { lancamentos, tipos } = dados;
   const saldosTodos = calcularSaldos(lancamentos);
 
@@ -18,8 +25,8 @@ export function SecaoLancamentos({ dados, somenteFpcCampo = false }: Props) {
     ? tipos.find((t) => t.nome === "FPC Campo")?.id
     : undefined;
 
-  // Indices dos lançamentos a exibir: sempre inclui a linha 0 (saldo inicial)
   const indicesVisiveis = lancamentos.reduce<number[]>((acc, l, i) => {
+    if (i === 0 && ocultarSaldoInicial) return acc;
     if (i === 0 || !somenteFpcCampo || l.tipoLancamentoId === fpcCampoId) {
       acc.push(i);
     }
@@ -28,11 +35,13 @@ export function SecaoLancamentos({ dados, somenteFpcCampo = false }: Props) {
 
   const subtotalFpcCampo = somenteFpcCampo
     ? indicesVisiveis
-        .slice(1)
+        .filter((i) => i !== 0)
         .reduce((acc, i) => acc + (lancamentos[i].valor ?? 0), 0)
     : 0;
 
   const getNomeTipo = (id: string) => tipos.find((t) => t.id === id)?.nome ?? "—";
+
+  const dcWidth = ocultarColunaSaldo ? 90 : 75;
 
   return (
     <View>
@@ -40,13 +49,16 @@ export function SecaoLancamentos({ dados, somenteFpcCampo = false }: Props) {
         {somenteFpcCampo ? "Lançamentos — FPC Campo" : "Lançamentos"}
       </Text>
 
-      {/* Cabeçalho */}
       <View style={s.thRow}>
         <Text style={[s.thCell, { width: 22 }]}>#</Text>
         <Text style={[s.thCell, { flex: 2 }]}>Tipo</Text>
         <Text style={[s.thCell, { flex: 3 }]}>Histórico</Text>
-        <Text style={[s.thCellRight, { width: 75 }]}>D/C</Text>
-        <Text style={[s.thCellRight, { width: 75 }]}>Saldo</Text>
+        <Text style={[s.thCellRight, { width: dcWidth }]}>
+          {somenteFpcCampo && ocultarColunaSaldo ? "Valor" : "D/C"}
+        </Text>
+        {!ocultarColunaSaldo && (
+          <Text style={[s.thCellRight, { width: 75 }]}>Saldo</Text>
+        )}
       </View>
 
       {indicesVisiveis.map((idx, posicao) => {
@@ -69,36 +81,43 @@ export function SecaoLancamentos({ dados, somenteFpcCampo = false }: Props) {
             <Text
               style={[
                 s.tdRight,
-                { width: 75 },
+                { width: dcWidth },
                 !isPrimeira && lanc.valor !== null && lanc.valor < 0 ? s.negativo : {},
               ]}
             >
               {isPrimeira ? "—" : lanc.valor !== null ? formatarBRL(lanc.valor) : "—"}
             </Text>
-            <Text style={[s.tdRight, { width: 75 }, saldo < 0 ? s.negativo : {}]}>
-              {formatarBRL(saldo)}
-            </Text>
+            {!ocultarColunaSaldo && (
+              <Text style={[s.tdRight, { width: 75 }, saldo < 0 ? s.negativo : {}]}>
+                {formatarBRL(saldo)}
+              </Text>
+            )}
           </View>
         );
       })}
 
-      {/* Rodapé */}
       <View style={s.rodapeTabela}>
         {somenteFpcCampo ? (
           <>
-            <Text style={[s.rodapeTabelaLabel, { flex: 6 }]}>Subtotal FPC Campo</Text>
-            <Text style={[s.rodapeTabelaValor, { width: 75 }]}>
+            <Text style={[s.rodapeTabelaLabel, { flex: ocultarColunaSaldo ? 7 : 6 }]}>
+              Subtotal FPC Campo
+            </Text>
+            <Text style={[s.rodapeTabelaValor, { width: dcWidth }]}>
               {formatarBRL(subtotalFpcCampo)}
             </Text>
-            <Text style={[s.rodapeTabelaValor, { width: 75 }]}> </Text>
+            {!ocultarColunaSaldo && (
+              <Text style={[s.rodapeTabelaValor, { width: 75 }]}> </Text>
+            )}
           </>
         ) : (
           <>
             <Text style={[s.rodapeTabelaLabel, { flex: 6 }]}>Saldo final</Text>
-            <Text style={[s.rodapeTabelaValor, { width: 75 }]}> </Text>
-            <Text style={[s.rodapeTabelaValor, { width: 75 }]}>
-              {formatarBRL(saldosTodos[saldosTodos.length - 1] ?? 0)}
-            </Text>
+            <Text style={[s.rodapeTabelaValor, { width: dcWidth }]}> </Text>
+            {!ocultarColunaSaldo && (
+              <Text style={[s.rodapeTabelaValor, { width: 75 }]}>
+                {formatarBRL(saldosTodos[saldosTodos.length - 1] ?? 0)}
+              </Text>
+            )}
           </>
         )}
       </View>

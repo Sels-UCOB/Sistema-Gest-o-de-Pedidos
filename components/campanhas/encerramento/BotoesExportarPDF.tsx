@@ -3,6 +3,7 @@
 import React, { useState, useCallback } from "react";
 import { Download } from "lucide-react";
 import { useAcerto } from "@/lib/campanhas/context/AcertoContext";
+import { useAcertosManagerOptional } from "@/lib/campanhas/context/AcertosManagerContext";
 import { useLancamento } from "@/lib/campanhas/context/LancamentoContext";
 import { useLancamentoLider } from "@/lib/campanhas/context/LancamentoLiderContext";
 import { useDebitos } from "@/lib/campanhas/context/DebitosContext";
@@ -24,6 +25,7 @@ export function BotoesExportarPDF() {
   const { devedores, gastosLideres, gastosCaixa } = useDebitos();
   const { tipos } = useConfiguracao();
 
+  const manager = useAcertosManagerOptional();
   const [carregando, setCarregando] = useState<TipoExportacao | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -68,13 +70,16 @@ export function BotoesExportarPDF() {
     setCarregando(tipo);
     setErro(null);
     try {
-      const dados = montarDados(tipo);
+      const dados: DadosPDF = { ...montarDados(tipo), acertoNome: manager?.activeAcerto?.nome ?? "" };
       const blob = await pdf(<DocumentoPDF dados={dados} />).toBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       const campanha = dados.config.tipoCampanha === "Outro" ? dados.config.tipoCampanhaOutro : dados.config.tipoCampanha;
       a.href = url;
-      a.download = `acerto-${tipo.toLowerCase()}-${campanha || "campanha"}.pdf`;
+      const nomeArquivo = (dados.acertoNome || campanha || "campanha")
+        .normalize("NFD").replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-z0-9\s-]/gi, "").replace(/\s+/g, "-").toLowerCase();
+      a.download = `acerto-${tipo.toLowerCase()}-${nomeArquivo}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -83,7 +88,7 @@ export function BotoesExportarPDF() {
     } finally {
       setCarregando(null);
     }
-  }, [montarDados]);
+  }, [montarDados, manager]);
 
   const botoes: { tipo: TipoExportacao; label: string; title: string }[] = [
     { tipo: "SELS",    label: "Exportar SELS",    title: "Lançamentos + Líderes + Encerramento" },

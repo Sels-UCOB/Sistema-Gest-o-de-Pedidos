@@ -4,16 +4,10 @@ import { s } from "./styles";
 import { SecaoCabecalho } from "./sections/SecaoCabecalho";
 import { SecaoLancamentos } from "./sections/SecaoLancamentos";
 import { SecaoAbaLideres } from "./sections/SecaoAbaLideres";
-import { SecaoResumoLideres, CardLiderDetalhado } from "./sections/SecaoResumoLideres";
+import { SecaoResumoLideres, CardLiderDetalhado, CardCaixaDetalhado } from "./sections/SecaoResumoLideres";
 import { SecaoEncerramento } from "./sections/SecaoEncerramento";
 import { SecaoAnexos } from "./sections/SecaoAnexos";
-import type { DadosPDF, TipoExportacao } from "./types";
-
-const LABEL: Record<TipoExportacao, string> = {
-  SELS: "Exportar SELS",
-  LIDERES: "Exportar Líderes",
-  CAMPO: "Exportar Campo",
-};
+import type { DadosPDF } from "./types";
 
 function RodapePDF() {
   return (
@@ -29,12 +23,30 @@ function RodapePDF() {
   );
 }
 
-function Capa({ tipo, campanha, data }: { tipo: TipoExportacao; campanha: string; data: string }) {
+interface CapaProps {
+  acertoNome: string;
+  campanha: string;
+  lideres: string[];
+  caixaNome: string;
+  data: string;
+}
+
+function Capa({ acertoNome, campanha, lideres, caixaNome, data }: CapaProps) {
   return (
     <View style={s.capaContainer}>
       <Text style={s.capaBadge}>Acerto de Campanha</Text>
-      <Text style={s.capaTipo}>{LABEL[tipo]}</Text>
-      <Text style={s.capaCampanha}>{campanha || "Campanha não informada"}</Text>
+      <Text style={s.capaTipo}>{acertoNome || campanha || "Acerto"}</Text>
+      <Text style={s.capaCampanha}>{campanha || "—"}</Text>
+      {(lideres.length > 0 || caixaNome) && (
+        <View style={s.capaLideresContainer}>
+          {lideres.map((l) => (
+            <Text key={l} style={s.capaLiderItem}>{l}</Text>
+          ))}
+          {caixaNome && (
+            <Text style={s.capaCaixaItem}>Caixa: {caixaNome}</Text>
+          )}
+        </View>
+      )}
       <Text style={s.capaData}>Gerado em {data}</Text>
     </View>
   );
@@ -44,6 +56,9 @@ export function DocumentoPDF({ dados }: { dados: DadosPDF }) {
   const { tipo, config } = dados;
   const campanha =
     config.tipoCampanha === "Outro" ? config.tipoCampanhaOutro : config.tipoCampanha;
+  const acertoNome = dados.acertoNome ?? "";
+  const lideres = config.lideres.slice(0, config.numLideres).filter((l) => l.nome.trim()).map((l) => l.nome);
+  const caixaNome = config.caixa.nome.trim();
   const data = new Date().toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
@@ -54,13 +69,13 @@ export function DocumentoPDF({ dados }: { dados: DadosPDF }) {
 
   return (
     <Document
-      title={`${LABEL[tipo]} — ${campanha}`}
+      title={`${acertoNome || campanha} — ${tipo}`}
       author="Sistema SELS"
       subject="Acerto de Campanha"
     >
       {/* ─── CAPA ─── */}
       <Page size="A4" style={s.page}>
-        <Capa tipo={tipo} campanha={campanha} data={data} />
+        <Capa acertoNome={acertoNome} campanha={campanha} lideres={lideres} caixaNome={caixaNome} data={data} />
         <RodapePDF />
       </Page>
 
@@ -110,7 +125,7 @@ export function DocumentoPDF({ dados }: { dados: DadosPDF }) {
           <Page size="A4" style={s.page}>
             <Text style={s.tituloPagina}>Aba Líderes</Text>
             <SecaoCabecalho dados={dados} />
-            <SecaoAbaLideres dados={dados} mostrarIRPFDetalhe={false} />
+            <SecaoAbaLideres dados={dados} mostrarIRPFDetalhe={false} ocultarSaldoHerdado />
             <RodapePDF />
           </Page>
 
@@ -131,7 +146,15 @@ export function DocumentoPDF({ dados }: { dados: DadosPDF }) {
             );
           })}
 
-          {/* Anexos (futuro) */}
+          {/* Página do Caixa */}
+          {caixaNome && (
+            <Page size="A4" style={s.page}>
+              <CardCaixaDetalhado dados={dados} />
+              <RodapePDF />
+            </Page>
+          )}
+
+          {/* Anexos */}
           {dados.anexos && dados.anexos.length > 0 && (
             <Page size="A4" style={s.page}>
               <Text style={s.tituloPagina}>Anexos</Text>
@@ -151,14 +174,14 @@ export function DocumentoPDF({ dados }: { dados: DadosPDF }) {
           <Page size="A4" style={s.page}>
             <Text style={s.tituloPagina}>Lançamentos — FPC Campo</Text>
             <SecaoCabecalho dados={dados} />
-            <SecaoLancamentos dados={dados} somenteFpcCampo />
+            <SecaoLancamentos dados={dados} somenteFpcCampo ocultarSaldoInicial ocultarColunaSaldo />
             <RodapePDF />
           </Page>
 
           {/* Aba Líderes */}
           <Page size="A4" style={s.page}>
             <Text style={s.tituloPagina}>Aba Líderes</Text>
-            <SecaoAbaLideres dados={dados} mostrarIRPFDetalhe />
+            <SecaoAbaLideres dados={dados} mostrarIRPFDetalhe ocultarSaldoHerdado />
             <RodapePDF />
           </Page>
 

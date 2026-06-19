@@ -338,6 +338,74 @@ export const s = StyleSheet.create({
     textAlign: "right",
   },
 
+  // Capa — líderes e caixa
+  capaLideresContainer: {
+    marginTop: 14,
+    alignItems: "center" as const,
+  },
+  capaLiderItem: {
+    fontSize: 11,
+    color: TEXTO_SEC,
+    marginBottom: 4,
+  },
+  capaCaixaItem: {
+    fontSize: 10,
+    color: TEXTO_SEC,
+    marginBottom: 4,
+    fontFamily: "Helvetica-Oblique",
+  },
+
+  // Popup IRPF/INSS — seção interna
+  detalheSecaoTitulo: {
+    fontSize: 6.5,
+    fontFamily: "Helvetica-Bold",
+    color: AZUL,
+    marginTop: 5,
+    marginBottom: 2,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
+  },
+  detalheLinhaBold: {
+    backgroundColor: CINZA,
+  },
+
+  // Tabela IRPF (ETAPA 1)
+  irpfTabelaHeader: {
+    flexDirection: "row" as const,
+    backgroundColor: AZUL,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    marginTop: 3,
+  },
+  irpfTabelaRow: {
+    flexDirection: "row" as const,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderBottomWidth: 0.3,
+    borderBottomColor: BORDA,
+  },
+  irpfFaixaAtiva: {
+    backgroundColor: AZUL_CLARO,
+    borderLeftWidth: 2,
+    borderLeftColor: AZUL,
+  },
+  irpfTabelaCell: {
+    fontSize: 6.5,
+    color: "white",
+    fontFamily: "Helvetica-Bold",
+  },
+  irpfTabelaTexto: {
+    fontSize: 6.5,
+    color: TEXTO,
+  },
+  irpfFormula: {
+    fontSize: 6.5,
+    color: TEXTO_SEC,
+    marginTop: 3,
+    marginBottom: 2,
+    paddingHorizontal: 4,
+  },
+
   // Cores
   negativo: { color: VERMELHO },
   positivo: { color: VERDE },
