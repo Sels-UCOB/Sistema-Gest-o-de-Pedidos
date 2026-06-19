@@ -7,6 +7,7 @@ import { LancamentoProvider } from "@/lib/campanhas/context/LancamentoContext";
 import { LancamentoLiderProvider } from "@/lib/campanhas/context/LancamentoLiderContext";
 import { DebitosProvider } from "@/lib/campanhas/context/DebitosContext";
 import { MigracaoLocalStorage } from "@/components/campanhas/MigracaoLocalStorage";
+import { AcertoTransitionOverlay } from "@/components/campanhas/AcertoTransitionOverlay";
 
 export default function CampanhasLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -16,6 +17,7 @@ export default function CampanhasLayout({ children }: { children: React.ReactNod
           <LancamentoProvider>
             <LancamentoLiderProvider>
               <DebitosProvider>
+                <AcertoTransitionOverlay />
                 {children}
                 <MigracaoLocalStorage />
               </DebitosProvider>

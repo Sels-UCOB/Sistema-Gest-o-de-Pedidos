@@ -63,7 +63,8 @@ export function ConfiguracaoProvider({ children }: { children: ReactNode }) {
       .select("tipos, campos, lideres")
       .eq("id", 1)
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) console.error("[config] erro ao carregar configuração global:", error.message, error.code, error.details);
         if (data) {
           if (Array.isArray(data.tipos) && data.tipos.length > 0) setTipos(data.tipos);
           if (Array.isArray(data.campos) && data.campos.length > 0) setCampos(data.campos);
@@ -86,7 +87,9 @@ export function ConfiguracaoProvider({ children }: { children: ReactNode }) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", 1)
-      .then(() => {});
+      .then(({ error }) => {
+        if (error) console.error("[config] erro ao salvar configuração global:", error.message, error.code, error.details);
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedTipos, debouncedCampos, debouncedLideres]);
 
