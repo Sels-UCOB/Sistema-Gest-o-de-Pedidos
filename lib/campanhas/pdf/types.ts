@@ -33,6 +33,7 @@ export interface Anexo {
 
 export interface DadosPDF {
   tipo: TipoExportacao;
+  acertoNome?: string;
   config: ConfigCampanha;
   dadosImportados: DadosImportados | null;
   lancamentos: Lancamento[];

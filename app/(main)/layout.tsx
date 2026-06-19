@@ -128,7 +128,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     }
   }, []);
 
-  const fetchAndSetProfile = async (userId: string): Promise<boolean> => {
+  const fetchAndSetProfile = async (userId: string, silenciosoEmFalha = false): Promise<boolean> => {
     const doFetch = async () => {
       const { data, error } = await supabase
         .from("profiles")
@@ -161,7 +161,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       }
       if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
     }
-    if (falhaNaRede) console.error("[profile] todas as tentativas falharam para userId:", userId);
+    if (falhaNaRede && !silenciosoEmFalha) console.error("[profile] todas as tentativas falharam para userId:", userId);
+    if (falhaNaRede && silenciosoEmFalha) console.warn("[profile] refresh em background falhou (rede indisponível), mantendo perfil em cache:", userId);
     return false;
   };
 
@@ -213,14 +214,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         const { data: { session } } = await supabase.auth.getSession();
         if (cancelled) return;
         if (!session) { router.replace("/"); return; }
-        await fetchAndSetProfile(session.user.id);
+        await fetchAndSetProfile(session.user.id, true);
         if (!cancelled) setRefreshTick(t => t + 1);
       }
     };
     const onOnline = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (cancelled) return;
-      if (session) await fetchAndSetProfile(session.user.id);
+      if (session) await fetchAndSetProfile(session.user.id, true);
       if (!cancelled) setRefreshTick(t => t + 1);
     };
     document.addEventListener("visibilitychange", onVisibility);
