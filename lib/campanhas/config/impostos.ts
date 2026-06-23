@@ -1,5 +1,5 @@
 ﻿export const INSS_PERCENTUAL = 0.10;
-export const INSS_PERCENTUAL_IRPF = 0.20;
+export const INSS_PERCENTUAL_IRPF = 0.10;
 export const DIZIMO_PERCENTUAL = 0.10;
 export const FPC_PERCENTUAL = 0.02;
 
